@@ -34,6 +34,7 @@ Three.js 0.160 (`three.min.js`, global `THREE`) e mqtt.js 5 (global `mqtt`) via 
 - Configuração da sala `net.cfg` (`cleanCfg`): modo `dm` | `tdm` (times, sem fogo amigo) | `gg` (Gun Game), mapa, abates, armas, vida (×0,5/1/2), power-ups. Vai junto no `roster`.
 - **Mudou o protocolo/mensagens? Aumente `VERSAO`** (aparece na tela do online; versões diferentes não se veem).
 - Regra especial: jogador chamado "Ana" tem 3,5× vida (`maxHpOf`).
+- Regeneração de vida: após `REGEN_DELAY` (5 s) sem levar dano, recupera `REGEN_RATE` (12%) da vida máxima por segundo. No online quem aplica é o dono da sala (`net.lastDmg` + `setInterval` de 0,5 s, manda `hp`); no modo sozinho é local em `updatePlayer`.
 
 ## Como testar (sem acesso aos servidores públicos)
 
