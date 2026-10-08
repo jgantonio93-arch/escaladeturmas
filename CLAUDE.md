@@ -3,7 +3,7 @@
 Dois projetos independentes, ambos páginas estáticas sem build:
 
 - `index.html` (raiz): app de sorteio de escala dos subgrupos. Não tem relação com o jogo.
-- `jogo/`: **Paintball com os Amigos** (nome oficial; já se chamou "Tiroteio Emesqaeda"), jogo 3D de tiro de paintball com os rostos de amigos (fotos `amigo1..3.jpg`) e personagens criados com foto do aparelho.
+- `jogo/`: **Paintball com os Amigos** (nome oficial; já se chamou "Tiroteio Emesqaeda"), jogo 3D de tiro de paintball com os rostos de amigos (fotos `amigo1..8.jpg`: Arthur, Igor, Hugo, Lucas, Isabela, Guilherme, Ana Lara, Amanda) e personagens criados com foto do aparelho.
 
 Textos da interface, comentários e mensagens de commit em português.
 
@@ -17,7 +17,7 @@ Textos da interface, comentários e mensagens de commit em português.
 
 Three.js 0.160 (`three.min.js`, global `THREE`) e mqtt.js 5 (global `mqtt`) via CDN. Todo o código fica em um `<script>` dentro de uma IIFE, nesta ordem:
 
-1. **Config** `AMIGOS` (nome, foto, cores, velocidade): trocar nomes/fotos aqui. Personagens criados pelo jogador ficam em `CUSTOM` (`localStorage` `pb-custom`, foto jpeg 160×200 em dataURL); `charList()` junta os dois (chaves `'0'..'2'` e `'c:<id>'`).
+1. **Config** `AMIGOS` (nome, foto, cores, velocidade): trocar nomes/fotos aqui. Personagens criados pelo jogador ficam em `CUSTOM` (`localStorage` `pb-custom`, foto jpeg 160×200 em dataURL); `charList()` junta os dois (chaves `'0'..'7'` e `'c:<id>'`; mudar a lista de `AMIGOS` muda os índices do online → aumente `VERSAO`).
 2. **Cena/luzes** (`hemi`, `sun`) e **Mapas** (`MAPS`: `arena` (o mapa original, padrão), `campus`, `armazem`, `praia`). Cada mapa tem uma função `build*` que monta chão, muros, obstáculos (`addBox`/`collider` → array `obstacles` de `Box3`) e decoração em `mapGroup`. **Sem `Math.random` nos mapas** (usar `seeded()`): tem que ficar idêntico em todos os aparelhos do online. `loadMap(id)` troca o mapa; `setLook` ajusta céu/neblina/luz (mude a neblina existente, não crie outra `THREE.Fog`, isso deixa tudo invisível).
 3. **Bonecos** `buildFriend` (rosto da foto num boneco cabeçudo), inimigos do modo sozinho (`enemies`, IA em `updateEnemies`).
 4. **Jogador** `player` + colisão (`collides`, `moveWithCollision`, `groundHeight`: dá para subir em caixas de até ~1,25 m de diferença).
@@ -43,7 +43,7 @@ Three.js 0.160 (`three.min.js`, global `THREE`) e mqtt.js 5 (global `mqtt`) via 
 - Dano: quem atira detecta o acerto e manda `hit` com `h:1` se foi na cabeça; o dono calcula e manda `hp` com `d` (dano) e `h`, e o atirador mostra o número. Zumbis: `zhit` → `zd`.
 - Personagem criado: `hello` leva `char: -1` e `cor`; a foto vai em `face` (validada por `validFace`, até 60 KB) e o dono repassa para todos (`net.faces`).
 - Ranking: cada jogador publica seus números (`stats`, `pb-stats`) retidos em `pbamigos/rank/<pid>`; o menu escuta junto com a lista de salas.
-- **Mudou o protocolo/mensagens? Aumente `VERSAO`** (aparece no rodapé do menu; versões diferentes não se veem). Hoje é 12.
+- **Mudou o protocolo/mensagens? Aumente `VERSAO`** (aparece no rodapé do menu; versões diferentes não se veem). Hoje é 13.
 - Vida: no PvP (se `regen` ligado) volta após `REGEN_DELAY` (5 s) sem dano, `REGEN_RATE` (12%) por segundo, aplicada pelo dono (`setInterval` de 0,5 s). Nas hordas não volta: kit médico (+50), bolsa de sangue 🩸 (+30, 30% de chance quando um zumbi morre, some em 25 s), +25 a cada rodada nova e ser levantado (40%).
 
 ## Como testar (sem acesso aos servidores públicos)
