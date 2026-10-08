@@ -3,7 +3,7 @@
 Dois projetos independentes, ambos páginas estáticas sem build:
 
 - `index.html` (raiz): app de sorteio de escala dos subgrupos. Não tem relação com o jogo.
-- `jogo/`: **Paintball dos Amigos**, jogo 3D de tiro de paintball com os rostos de amigos (fotos `amigo1..3.jpg`).
+- `jogo/`: **Tiroteio Emesqaeda** (nome oficial; antes "Paintball dos Amigos"), jogo 3D de tiro de paintball com os rostos de amigos (fotos `amigo1..3.jpg`).
 
 Textos da interface, comentários e mensagens de commit em português.
 
@@ -11,7 +11,7 @@ Textos da interface, comentários e mensagens de commit em português.
 
 - GitHub Pages está configurado na branch `claude/jogo-3d-tiro-amigos-g4vola` (pasta raiz). Um push nessa branch publica em 1–2 min em
   https://jgantonio93-arch.github.io/escaladeturmas/jogo/
-- Versão em arquivo único (para mandar por WhatsApp etc.): `python3 jogo/tools/montar_arquivo_unico.py` gera `paintball-dos-amigos.html` na raiz (fora do git).
+- Versão em arquivo único (para mandar por WhatsApp etc.): `python3 jogo/tools/montar_arquivo_unico.py` gera `tiroteio-emesqaeda.html` na raiz (fora do git).
 
 ## Arquitetura do jogo (`jogo/index.html`, um arquivo só)
 
