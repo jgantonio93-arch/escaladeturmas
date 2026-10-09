@@ -39,6 +39,7 @@ Three.js 0.160 (`three.min.js`, global `THREE`) e mqtt.js 5 (global `mqtt`) via 
 
 - Telas em `SCREENS` (`showScreen`): menu principal com abas Salas abertas / Ranking / Controles e o seletor de personagem + nome sempre embaixo (`startScreen`), Criar sala / regras da sala (`roomScreen`), Treino solo (`soloScreen`, `soloCfg` em `pb-solo`), Criar personagem (`charScreen`), Controles e ajustes por cima da pausa (`controlsScreen`; o painel `#controlsPanel` é movido entre a aba e essa tela), Pausa e Resultado.
 - Configurações do jogador em `settings` (`localStorage` `pb-settings`): sensibilidade mouse/toque, volume, música dos menus (`mus`), campo de visão, tamanho dos botões do celular (`--B`), qualidade, mira assistida, inverter Y, FPS. Aplicam na hora (`readSettings`).
+- Tela cheia: botão ⛶ no menu e na pausa (`alternarTelaCheia`); no iPhone (sem Fullscreen API) abre a ajuda `#fsAjuda` para "Adicionar à Tela de Início" (`manifest.webmanifest` + `icone-*.png`, `display: fullscreen`); no Android também oferece instalar (`beforeinstallprompt`). Aberto pelo ícone (`instalado()`), o botão some.
 - Celular: vida em cima à esquerda; joystick flutuante (aparece onde o dedo toca na metade esquerda: `stickStart`/`stickRest`); botões à direita.
 
 ## Conta (progresso na nuvem)
