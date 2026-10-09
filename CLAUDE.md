@@ -65,7 +65,7 @@ Three.js 0.160 (`three.min.js`, global `THREE`) e mqtt.js 5 (global `mqtt`) via 
 - Dano: quem atira detecta o acerto e manda `hit` com `h:1` se foi na cabeça; o dono calcula e manda `hp` com `d` (dano) e `h`, e o atirador mostra o número. Zumbis: `zhit` → `zd`.
 - Personagem criado: `hello` leva `char: -1` e `cor`; a foto vai em `face` (validada por `validFace`, até 60 KB) e o dono repassa para todos (`net.faces`).
 - Ranking: cada jogador publica seus números (`stats`, `pb-stats`) retidos em `pbamigos/rank/<pid>`, com os da semana (`weekKey()`, campos `wk*`); o menu escuta junto com a lista de salas e mostra o **Pintor da semana** (`renderWeekStar`) e a aba Ranking com "Esta semana"/"Geral".
-- **Mudou o protocolo/mensagens? Aumente `VERSAO`** (aparece no rodapé do menu; versões diferentes não se veem). Hoje é 18.
+- **Mudou o protocolo/mensagens? Aumente `VERSAO`** (aparece no rodapé do menu; versões diferentes não se veem). Hoje é 19.
 - Vida: no PvP (se `regen` ligado) volta após `REGEN_DELAY` (5 s) sem dano, `REGEN_RATE` (12%) por segundo, aplicada pelo dono (`setInterval` de 0,5 s). Nas hordas não volta: kit médico (+50), bolsa de sangue 🩸 (+30, 30% de chance quando um zumbi morre, some em 25 s), +25 a cada rodada nova e ser levantado (40%). Chefão a cada 5 rodadas (`Z.boss`, zumbi com `boss`/`scale` 2,1, barra `#bossBar`, solta 3 bolsas + kit).
 
 ## Como testar (sem acesso aos servidores públicos)
