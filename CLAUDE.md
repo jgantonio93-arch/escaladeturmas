@@ -51,7 +51,7 @@ Three.js 0.160 (`three.min.js`, global `THREE`) e mqtt.js 5 (global `mqtt`) via 
 ## Galeria pública e administrador
 
 - Seção "Amigos secretos, galeria pública e administrador". Criar personagem com 🌎 marcado publica retido em `pbamigos/galeria/f/<id>` (`publicarGaleria`, 4 s depois de conectar se ainda não estiver lá); todos recebem em `onGaleria` (até `GAL_MAX`), escolhem como personagem e os rostos viram zumbis (`zRostos()` = galeria + secretos + bonecos; `kind` do zumbi é só um número sorteado).
-- Admin = conta cujo nome normalizado bate com `ADM_HASH` (SHA-256 de `'pbadm:' + normUser(nome)`; o e-mail do dono não fica escrito no código). `checarAdmin` mostra o botão 🛡️ Admin (`admScreen`): aviso no menu (`pbamigos/adm/aviso`, `avisoBox`), apagar foto da galeria, tirar sala da lista e jogador do ranking (lista retida `pbamigos/adm/ban` = `{gal, rank, sala}`, respeitada por todos em `onAdm`/`onRank`/`openLobby`), esconder os secretos no aparelho; os itens do Visual o admin conquista igual a todo mundo. Sem servidor isso não é à prova de quem mexe no código.
+- Admin = conta cujo nome normalizado bate com `ADM_HASH` (SHA-256 de `'pbadm:' + normUser(nome)`; o e-mail do dono não fica escrito no código). `checarAdmin` mostra o botão 🛡️ Admin (`admScreen`): aviso no menu (`pbamigos/adm/aviso`, `avisoBox`), apagar foto da galeria, tirar sala da lista e jogador do ranking (lista retida `pbamigos/adm/ban` = `{gal, rank, sala}`, respeitada por todos em `onAdm`/`onRank`/`openLobby`), esconder os secretos no aparelho; na partida, pausa → 🛡️ Vida dos jogadores (`#admVida`, `renderAdmVida`) manda `admhp` ao dono, que só aceita de quem entrou com `adm` no `hello` (vida 1–9999; acima do normal vira `p.vmax`, usado por `hpMax(id)`); os itens do Visual o admin conquista igual a todo mundo. Sem servidor isso não é à prova de quem mexe no código.
 
 ## Sons
 
@@ -66,7 +66,7 @@ Three.js 0.160 (`three.min.js`, global `THREE`) e mqtt.js 5 (global `mqtt`) via 
 - Dano: quem atira detecta o acerto e manda `hit` com `h:1` se foi na cabeça; o dono calcula e manda `hp` com `d` (dano) e `h`, e o atirador mostra o número. Zumbis: `zhit` → `zd`.
 - Personagem criado: `hello` leva `char: -1` e `cor`; a foto vai em `face` (validada por `validFace`, até 60 KB) e o dono repassa para todos (`net.faces`).
 - Ranking: cada jogador publica seus números (`stats`, `pb-stats`) retidos em `pbamigos/rank/<pid>`, com os da semana (`weekKey()`, campos `wk*`); o menu escuta junto com a lista de salas e mostra o **Pintor da semana** (`renderWeekStar`) e a aba Ranking com "Esta semana"/"Geral".
-- **Mudou o protocolo/mensagens? Aumente `VERSAO`** (aparece no rodapé do menu; versões diferentes não se veem). Hoje é 20.
+- **Mudou o protocolo/mensagens? Aumente `VERSAO`** (aparece no rodapé do menu; versões diferentes não se veem). Hoje é 21.
 - Vida: no PvP (se `regen` ligado) volta após `REGEN_DELAY` (5 s) sem dano, `REGEN_RATE` (12%) por segundo, aplicada pelo dono (`setInterval` de 0,5 s). Nas hordas não volta: kit médico (+50), bolsa de sangue 🩸 (+30, 30% de chance quando um zumbi morre, some em 25 s), +25 a cada rodada nova e ser levantado (40%). Chefão a cada 5 rodadas (`Z.boss`, zumbi com `boss`/`scale` 2,1, barra `#bossBar`, solta 3 bolsas + kit).
 
 ## Como testar (sem acesso aos servidores públicos)
