@@ -18,7 +18,7 @@ Textos da interface, comentários e mensagens de commit em português.
 Three.js 0.160 (`three.min.js`, global `THREE`) e mqtt.js 5 (global `mqtt`) via CDN. Todo o código fica em um `<script>` dentro de uma IIFE, nesta ordem:
 
 1. **Config** `AMIGOS` (nome, foto, cores, velocidade): trocar nomes/fotos aqui. Personagens criados pelo jogador ficam em `CUSTOM` (`localStorage` `pb-custom`, foto jpeg 160×200 em dataURL); `charList()` junta os dois (chaves `'0'..'7'` e `'c:<id>'`; mudar a lista de `AMIGOS` muda os índices do online → aumente `VERSAO`).
-1b. **Visual** (`LOOK_CORES`, `MASK_CORES`, `TINTAS`, `HATS`, `ACCS`, `applyLook`): máscara, macacão, cor da tinta, chapéus e acessórios; `req` = conquista que destrava (`unlocked`, `reqValue`, aviso em `checkUnlocks`). Salvo em `pb-look`; vai no `hello` como `lk`. Tela `lockerScreen` com prévia 3D (`openLocker`, segundo `WebGLRenderer`).
+1b. **Visual** (`LOOK_CORES`, `MASK_CORES`, `TINTAS`, `HATS`, `ACCS`, `BACKS`, `FXS`, `applyLook`): máscara, macacão, cor da tinta, chapéu (`h`), rosto/pescoço (`a`), costas (`b`) e efeito ao pintar alguém (`f`, `fxBurst` com emojis/confete). Cada item tem `fazer(P, look)` que monta as peças (P.add / P.anim para animar: hélice, capa, asas, jetpack…), `rar` (comum/raro/epico/lendario) e `req` = conquista que destrava (`unlocked`, `reqValue`, aviso em `checkUnlocks`; números `zk` = zumbis e `boss` = chefões contam também no treino). Salvo em `pb-look`; vai no `hello` como `lk`. Tela `lockerScreen` com prévia 3D (`openLocker`, segundo `WebGLRenderer`).
 2. **Cena/luzes** (`hemi`, `sun`) e **Mapas** (`MAPS`: `arena` (o mapa original, padrão), `campus`, `armazem`, `praia`, `escola`, `shopping` (noite), `floresta` (neblina)). Salas com porta: `room()` + `door()` (`doors`, `setDoor`, `useDoor` com E/PORTA; online via `door`). Clima (`CLIMAS`, `applyClima`, `updateClima`): sol, chuva (linhas em volta da câmera), noite (lanterna `SpotLight` presa na câmera), tempestade (raios); `setLook` guarda o visual base do mapa e o clima mexe por cima (`setLookRaw`). Cada mapa tem uma função `build*` que monta chão, muros, obstáculos (`addBox`/`collider` → array `obstacles` de `Box3`) e decoração em `mapGroup`. **Sem `Math.random` nos mapas** (usar `seeded()`): tem que ficar idêntico em todos os aparelhos do online. `loadMap(id)` troca o mapa; `setLook` ajusta céu/neblina/luz (mude a neblina existente, não crie outra `THREE.Fog`, isso deixa tudo invisível).
 3. **Bonecos** `buildFriend` (rosto da foto num boneco cabeçudo), inimigos do modo sozinho (`enemies`, IA em `updateEnemies`).
 4. **Jogador** `player` + colisão (`collides`, `moveWithCollision`, `groundHeight`: dá para subir em caixas de até ~1,25 m de diferença).
@@ -40,6 +40,13 @@ Three.js 0.160 (`three.min.js`, global `THREE`) e mqtt.js 5 (global `mqtt`) via 
 - Configurações do jogador em `settings` (`localStorage` `pb-settings`): sensibilidade mouse/toque, volume, música dos menus (`mus`), campo de visão, tamanho dos botões do celular (`--B`), qualidade, mira assistida, inverter Y, FPS. Aplicam na hora (`readSettings`).
 - Celular: vida em cima à esquerda; joystick flutuante (aparece onde o dedo toca na metade esquerda: `stickStart`/`stickRest`); botões à direita.
 
+## Conta (progresso na nuvem)
+
+- Seção "Conta" do código. Nome + senha → PBKDF2 (150 mil voltas) gera a chave AES-GCM e o endereço do save (`pbamigos/conta/save/<id>`, mensagem retida nos `BROKERS`, criptografada). Nome reservado em `pbamigos/conta/nome/<hash>` (impede criar duas contas com o mesmo nome). Fica lembrado no aparelho em `pb-conta` (chave derivada, não a senha).
+- Tudo que é progresso passa por `save()` (chaves em `SYNC_EARLY`): marca `pb-save-ts` e agenda o envio (`agendarNuvem` → `salvarNuvem`, 4 s depois). Arrumações que não são progresso usam `save(k, v, true)`.
+- Ao entrar (ou ao abrir o jogo com conta: `contaAuto`) junta nuvem + aparelho sem perder nada (`mesclarSave`: números pelo maior, visual/nome pelo mais novo, personagens somados, mesmo `pid` do ranking).
+- Código de backup `PBA1:` + base64 do mesmo save (`codigoBackup`, `restaurarBackup`).
+
 ## Sons
 
 - Tudo sintetizado (Web Audio): `beep` simples, `tone` (com filtro/varredura) e `noise` (ruído filtrado). Sons dos menus em `ui`, tocados por um único `click` no `document` conforme a classe do botão. Música dos menus gerada na hora (`startMusic`/`stopMusic`, `musicSchedule`), liga em `menu`/`over`. Sons dos monstros em `zsom` (volume pela distância `longe`).
@@ -52,7 +59,7 @@ Three.js 0.160 (`three.min.js`, global `THREE`) e mqtt.js 5 (global `mqtt`) via 
 - Dano: quem atira detecta o acerto e manda `hit` com `h:1` se foi na cabeça; o dono calcula e manda `hp` com `d` (dano) e `h`, e o atirador mostra o número. Zumbis: `zhit` → `zd`.
 - Personagem criado: `hello` leva `char: -1` e `cor`; a foto vai em `face` (validada por `validFace`, até 60 KB) e o dono repassa para todos (`net.faces`).
 - Ranking: cada jogador publica seus números (`stats`, `pb-stats`) retidos em `pbamigos/rank/<pid>`, com os da semana (`weekKey()`, campos `wk*`); o menu escuta junto com a lista de salas e mostra o **Pintor da semana** (`renderWeekStar`) e a aba Ranking com "Esta semana"/"Geral".
-- **Mudou o protocolo/mensagens? Aumente `VERSAO`** (aparece no rodapé do menu; versões diferentes não se veem). Hoje é 15.
+- **Mudou o protocolo/mensagens? Aumente `VERSAO`** (aparece no rodapé do menu; versões diferentes não se veem). Hoje é 16.
 - Vida: no PvP (se `regen` ligado) volta após `REGEN_DELAY` (5 s) sem dano, `REGEN_RATE` (12%) por segundo, aplicada pelo dono (`setInterval` de 0,5 s). Nas hordas não volta: kit médico (+50), bolsa de sangue 🩸 (+30, 30% de chance quando um zumbi morre, some em 25 s), +25 a cada rodada nova e ser levantado (40%). Chefão a cada 5 rodadas (`Z.boss`, zumbi com `boss`/`scale` 2,1, barra `#bossBar`, solta 3 bolsas + kit).
 
 ## Como testar (sem acesso aos servidores públicos)
