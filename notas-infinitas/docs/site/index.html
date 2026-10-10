@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="../design/logo.svg">
+<title>TonyNotes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..800;1,9..144,300..800&family=Onest:wght@400..700&family=Caveat:wght@500..700&display=swap">
+<style>
+/* Layout: a página inteira é papel pontilhado do app; o herói é a capa do caderno,
+   a folha de teste é uma folha de verdade sobre a mesa, e as telas correm como um rolo. */
+:root {
+  --desk: #F3F0EA;          /* mesa / papel pontilhado */
+  --sheet: #FFFFFF;         /* folha (continua papel claro no tema escuro) */
+  --ink: #1F1D1A;           /* tinta */
+  --graphite: #67635B;      /* texto secundário, 5:1 sobre a mesa */
+  --rule: #E2DDD3;          /* linhas e pontos */
+  --accent: #3A55B8;        /* azul de caneta, acento único */
+  --accent-ink: #FFFFFF;
+  --marker: rgba(255, 222, 0, .55); /* marca-texto */
+  --raise: rgba(60, 48, 30, .14);   /* sombra quente */
+  --sheet-ink: #1F1D1A;
+  --sheet-rule: #D9DEE6;
+
+  --display: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --body: "Onest", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --hand: "Caveat", "Segoe Print", "Bradley Hand", cursive;
+
+  --step--1: .875rem;
+  --step-0: 1.0625rem;
+  --step-1: 1.3rem;
+  --step-2: clamp(1.6rem, 1.2rem + 1.6vw, 2.2rem);
+  --step-3: clamp(2.2rem, 1.4rem + 3.4vw, 3.6rem);
+  --step-4: clamp(2.9rem, 1.6rem + 5.6vw, 5.9rem);
+  --gutter: clamp(16px, 4vw, 40px);
+  --wrap: 1180px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --desk: #17150F;
+    --sheet: #F4F1EA;
+    --ink: #EDE8DD;
+    --graphite: #A8A296;
+    --rule: #2D2A23;
+    --accent: #93A6F2;
+    --accent-ink: #11131C;
+    --marker: rgba(255, 222, 0, .38);
+    --raise: rgba(0, 0, 0, .45);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --desk: #17150F;
+  --sheet: #F4F1EA;
+  --ink: #EDE8DD;
+  --graphite: #A8A296;
+  --rule: #2D2A23;
+  --accent: #93A6F2;
+  --accent-ink: #11131C;
+  --marker: rgba(255, 222, 0, .38);
+  --raise: rgba(0, 0, 0, .45);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  background-color: var(--desk);
+  background-image: radial-gradient(circle at 1px 1px, var(--rule) 1.15px, transparent 1.6px);
+  background-size: 26px 26px;
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: var(--step-0);
+  line-height: 1.6;
+  padding-inline: var(--gutter);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; }
+:focus-visible { outline: 2.5px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+.wrap { max-width: var(--wrap); margin-inline: auto; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; letter-spacing: -.02em; line-height: 1.04; text-wrap: balance; margin: 0; font-optical-sizing: auto; }
+p { margin: 0; }
+.eyebrow { font-size: var(--step--1); font-weight: 600; color: var(--graphite); letter-spacing: .02em; }
+.hand { font-family: var(--hand); font-weight: 600; color: var(--accent); line-height: 1; }
+
+/* ---- Topo ---- */
+.top {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  display: flex; align-items: center; gap: 24px;
+  padding-block: 14px;
+  margin-inline: calc(-1 * var(--gutter)); padding-inline: var(--gutter);
+  background: color-mix(in srgb, var(--desk) 86%, transparent);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+}
+.top .wrap { display: flex; align-items: center; gap: 24px; width: 100%; }
+.mark { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font-family: var(--display); font-style: italic; font-weight: 600; font-size: 1.4rem; letter-spacing: -.02em; }
+.mark svg { width: 30px; height: 30px; flex: none; filter: drop-shadow(0 4px 8px rgba(37, 56, 154, .25)); }
+.nav { display: flex; gap: 22px; margin-left: auto; font-size: var(--step--1); font-weight: 500; }
+.nav a { text-decoration: none; color: var(--graphite); }
+.nav a:hover { color: var(--ink); }
+.btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  font: 600 1rem/1 var(--body); text-decoration: none;
+  background: var(--accent); color: var(--accent-ink);
+  padding: 15px 22px; border-radius: 14px; border: 0; cursor: pointer;
+  box-shadow: 0 1px 0 rgba(255,255,255,.25) inset, 0 10px 24px -12px var(--accent);
+  transition: transform .18s cubic-bezier(.32,.72,0,1), box-shadow .18s;
+}
+.btn:hover { transform: translateY(-1px); box-shadow: 0 1px 0 rgba(255,255,255,.25) inset, 0 14px 28px -12px var(--accent); }
+.btn:active { transform: scale(.97); }
+.btn svg { width: 20px; height: 20px; flex: none; }
+.btn.small { padding: 10px 16px; font-size: .9rem; border-radius: 12px; }
+.ghost { color: var(--ink); font-weight: 500; text-underline-offset: 4px; text-decoration-thickness: 1px; }
+@media (max-width: 760px) { .nav { display: none; } .top .btn.small { margin-left: auto; } }
+
+/* ---- Herói ---- */
+.hero { display: grid; grid-template-columns: 1.08fr .92fr; gap: clamp(28px, 5vw, 72px); align-items: center; padding-block: clamp(40px, 8vw, 104px) clamp(48px, 7vw, 96px); }
+.hero > * { min-width: 0; }
+.hero h1 { font-size: var(--step-4); font-weight: 560; margin-top: 18px; }
+.hero h1 em { font-style: italic; font-weight: 500; }
+.swipe { position: relative; white-space: nowrap; }
+.swipe::before {
+  content: ""; position: absolute; z-index: -1;
+  left: -.08em; right: -.1em; top: .52em; bottom: .02em;
+  background: var(--marker);
+  border-radius: .08em .22em .12em .3em / .3em .12em .26em .1em;
+  transform: skewX(-8deg) rotate(-1.2deg);
+  transform-origin: left center;
+  animation: swipe 900ms cubic-bezier(.32,.72,0,1) 350ms both;
+}
+@keyframes swipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+.lede { margin-top: 24px; font-size: var(--step-1); line-height: 1.5; color: var(--graphite); max-width: 33ch; }
+.lede strong { color: var(--ink); font-weight: 600; }
+.cta { margin-top: 34px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px; position: relative; }
+.cta-meta { margin-top: 14px; font-size: var(--step--1); color: var(--graphite); display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.cta-meta span + span::before { content: "·"; margin-right: 14px; color: var(--rule); }
+.note-arrow { position: absolute; left: 270px; top: -46px; display: flex; align-items: flex-end; gap: 4px; font-size: 1.45rem; transform: rotate(-4deg); pointer-events: none; }
+.note-arrow svg { width: 44px; height: 40px; stroke: var(--accent); fill: none; stroke-width: 2; stroke-linecap: round; }
+@media (max-width: 980px) { .note-arrow { display: none; } }
+
+.phones { position: relative; height: clamp(440px, 52vw, 640px); }
+.phone {
+  position: absolute; width: clamp(200px, 21vw, 290px); aspect-ratio: 620 / 1344;
+  border-radius: 34px; padding: 9px; background: #121110;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.06) inset, 0 40px 60px -30px var(--raise), 0 18px 30px -18px var(--raise);
+}
+.phone img { width: 100%; height: 100%; object-fit: cover; border-radius: 26px; display: block; background: #fff; }
+.phone.front { right: 4%; top: 0; z-index: 2; transform: rotate(2.5deg); }
+.phone.back { left: 2%; top: 12%; transform: rotate(-6deg); filter: saturate(.92); }
+.tag {
+  position: absolute; z-index: 3; font-size: 1.35rem; white-space: nowrap;
+}
+.tag.t1 { left: -2%; bottom: -1%; transform: rotate(-5deg); }
+.tag.t2 { right: -2%; top: -6%; transform: rotate(4deg); }
+@media (max-width: 860px) {
+  .hero { grid-template-columns: minmax(0, 1fr); }
+  .phones { height: auto; aspect-ratio: 1 / 1.05; max-width: 520px; width: 100%; margin-inline: auto; }
+  .phone { width: 46%; }
+  .tag.t2 { right: 0; top: -2%; }
+  .tag.t1 { left: 0; bottom: -4%; }
+}
+
+/* ---- Fatos ---- */
+.facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-block: 1px solid var(--rule); }
+.fact { padding: 22px 20px 24px; display: grid; gap: 4px; }
+.fact + .fact { border-left: 1px solid var(--rule); }
+.fact b { font-family: var(--display); font-weight: 500; font-size: var(--step-2); letter-spacing: -.02em; font-variant-numeric: lining-nums tabular-nums; }
+.fact span { font-size: var(--step--1); color: var(--graphite); line-height: 1.4; }
+@media (max-width: 760px) {
+  .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fact:nth-child(3) { border-left: 0; }
+  .fact:nth-child(n+3) { border-top: 1px solid var(--rule); }
+}
+
+section { scroll-margin-top: 80px; }
+.sec { padding-block: clamp(64px, 9vw, 120px) 0; }
+.sec-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px 48px; align-items: end; margin-bottom: 36px; }
+.sec-head h2 { font-size: var(--step-3); }
+.sec-head p { color: var(--graphite); max-width: 46ch; }
+@media (max-width: 760px) { .sec-head { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---- Folha de teste ---- */
+.pad {
+  background: var(--sheet); color: var(--sheet-ink);
+  border-radius: 6px 6px 18px 18px;
+  box-shadow: 0 1px 0 rgba(0,0,0,.03), 0 30px 50px -34px var(--raise), 0 12px 20px -16px var(--raise);
+  position: relative; overflow: hidden;
+}
+.pad-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 14px; border-bottom: 1px solid #ECE8E0; background: #FBFAF7; }
+.brushes { display: flex; gap: 6px; flex-wrap: wrap; }
+.brush {
+  display: grid; justify-items: center; gap: 2px;
+  border: 0; background: transparent; color: #4A463F; cursor: pointer;
+  padding: 6px 8px 5px; border-radius: 12px; font: 500 .74rem/1.1 var(--body);
+}
+.brush canvas { width: 64px; height: 22px; display: block; }
+.brush[aria-pressed="true"] { background: #E9EDF8; color: #2E46A0; }
+.brush:hover { background: #F1EEE8; }
+.brush[aria-pressed="true"]:hover { background: #E2E8F7; }
+.pad-sep { width: 1px; align-self: stretch; background: #E6E2DA; margin-inline: 2px; }
+.dots { display: flex; gap: 8px; align-items: center; }
+.dot { width: 26px; height: 26px; border-radius: 50%; border: 0; cursor: pointer; box-shadow: 0 0 0 1px rgba(0,0,0,.08) inset; position: relative; }
+.dot[aria-pressed="true"]::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid #3A55B8; }
+.pad-actions { display: flex; gap: 6px; margin-left: auto; }
+.tool { border: 0; background: #F1EEE8; color: #2C2925; font: 500 .85rem/1 var(--body); padding: 9px 12px; border-radius: 10px; cursor: pointer; }
+.tool:hover { background: #E9E5DD; }
+.stage { position: relative; height: clamp(360px, 46vw, 500px); touch-action: none; cursor: crosshair;
+  background-image: radial-gradient(circle at 1px 1px, #CDD2DA 1.1px, transparent 1.5px); background-size: 24px 24px; }
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.stage-hint { position: absolute; right: 18px; bottom: 14px; font-size: 1.35rem; color: #3A55B8; pointer-events: none; transition: opacity .4s; }
+.pad-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 18px; padding: 10px 16px; font-size: .8rem; color: #67635B; border-top: 1px solid #ECE8E0; background: #FBFAF7; }
+
+/* ---- Recursos ---- */
+.features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: clamp(28px, 6vw, 88px); }
+.feat { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 4px 16px; padding-block: 22px; border-top: 1px solid var(--rule); }
+.feat svg { width: 28px; height: 28px; stroke: var(--accent); fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; grid-row: span 2; margin-top: 2px; }
+.feat h3 { font-family: var(--body); font-weight: 650; font-size: 1.08rem; letter-spacing: -.005em; line-height: 1.3; }
+.feat p { color: var(--graphite); font-size: .98rem; line-height: 1.55; }
+@media (max-width: 760px) { .features { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---- Telas ---- */
+.reel { display: flex; gap: clamp(16px, 2.4vw, 28px); overflow-x: auto; scroll-snap-type: x mandatory; padding-block: 8px 28px; margin-inline: calc(-1 * var(--gutter)); padding-inline: var(--gutter); scrollbar-width: thin; }
+.reel figure { margin: 0; flex: none; width: clamp(180px, 22vw, 250px); scroll-snap-align: start; display: grid; gap: 12px; }
+.reel .phone { position: static; width: 100%; transform: none; border-radius: 28px; padding: 7px; }
+.reel .phone img { border-radius: 22px; }
+.reel figcaption { font-size: .92rem; color: var(--graphite); line-height: 1.4; }
+.reel figcaption b { color: var(--ink); font-weight: 600; display: block; }
+
+/* ---- Instalar ---- */
+.install { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: clamp(28px, 6vw, 80px); align-items: start; }
+.steps { list-style: none; margin: 0; padding: 0; counter-reset: s; display: grid; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 4px 12px; padding-block: 20px; border-top: 1px solid var(--rule); }
+.steps li::before { content: counter(s); font-family: var(--display); font-size: 2rem; font-weight: 500; line-height: 1; color: var(--accent); grid-row: span 2; font-variant-numeric: lining-nums; }
+.steps b { font-weight: 650; }
+.steps p { color: var(--graphite); font-size: .98rem; }
+.card-dl {
+  min-width: 0;
+  background: var(--sheet); color: var(--sheet-ink);
+  border-radius: 22px; padding: clamp(20px, 5vw, 28px); display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; justify-items: start;
+  box-shadow: 0 30px 50px -34px var(--raise), 0 10px 18px -14px var(--raise);
+}
+.card-head { display: flex; gap: 16px; align-items: center; min-width: 0; }
+.card-head > div { min-width: 0; }
+.card-head svg { width: 64px; height: 64px; flex: none; filter: drop-shadow(0 8px 14px rgba(37, 56, 154, .28)); }
+.card-dl h3 { font-size: 1.9rem; color: #1F1D1A; }
+.card-dl p { color: #5E5A52; font-size: .96rem; }
+.card-dl .btn { background: #3A55B8; color: #fff; box-shadow: 0 10px 24px -12px #3A55B8; }
+.qr-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; padding-top: 18px; border-top: 1px solid #ECE8E0; width: 100%; }
+.qr { width: 112px; height: 112px; flex: none; padding: 8px; background: #fff; border-radius: 12px; box-shadow: 0 0 0 1px #ECE8E0 inset; }
+.qr img, .qr canvas { width: 100% !important; height: 100% !important; display: block; }
+.qr-row p { font-size: .9rem; flex: 1 1 160px; min-width: 0; }
+.link-line { display: flex; gap: 8px; align-items: center; width: 100%; }
+.link-line code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font-size: .76rem; background: #F4F1EA; color: #3D3A34; padding: 8px 10px; border-radius: 8px; scrollbar-width: none; }
+.copy { border: 0; background: #F1EEE8; color: #2C2925; font: 600 .8rem/1 var(--body); padding: 9px 11px; border-radius: 8px; cursor: pointer; flex: none; }
+@media (max-width: 860px) { .install { grid-template-columns: minmax(0, 1fr); } }
+
+footer { margin-top: clamp(72px, 10vw, 128px); padding-block: 28px 40px; border-top: 1px solid var(--rule); display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; color: var(--graphite); font-size: var(--step--1); }
+footer .mark { font-size: 1.1rem; color: var(--ink); }
+
+.rise { animation: rise .8s cubic-bezier(.32,.72,0,1) both; }
+.rise.d1 { animation-delay: .08s; } .rise.d2 { animation-delay: .16s; } .rise.d3 { animation-delay: .24s; }
+@keyframes rise { from { transform: translateY(14px); opacity: .001; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .rise, .swipe::before { animation: none; }
+  .btn, .brush { transition: none; }
+}
+</style>
+</head><body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="tn-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4060CC"/><stop offset="1" stop-color="#25389A"/></linearGradient>
+    <symbol id="tn-logo" viewBox="0 0 108 108">
+      <rect width="108" height="108" rx="30" fill="url(#tn-bg)"/>
+      <g transform="translate(0 -1) translate(54 54) scale(1.25) translate(-54 -54)">
+        <rect x="30" y="34" width="48" height="13" rx="4" fill="#FFD84D" transform="rotate(-4 54 40)"/>
+        <path d="M34.5 41H73.5M53 41V60.5C53 71.5 63.5 74.5 71 68" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+    </symbol>
+  </defs>
+</svg>
+
+<header class="top">
+  <div class="wrap">
+    <a class="mark" href="#inicio" aria-label="TonyNotes, início">
+      <svg viewBox="0 0 108 108" aria-hidden="true"><use href="#tn-logo"/></svg>
+      TonyNotes
+    </a>
+    <nav class="nav" aria-label="Seções">
+      <a href="#experimente">Experimente</a>
+      <a href="#recursos">Recursos</a>
+      <a href="#telas">Telas</a>
+      <a href="#instalar">Instalar</a>
+    </nav>
+    <a class="btn small" href="https://github.com/jgantonio93-arch/escaladeturmas/releases/latest/download/TonyNotes.apk" target="_blank" rel="noopener">Baixar</a>
+  </div>
+</header>
+
+<main class="wrap" id="inicio">
+  <section class="hero">
+    <div>
+      <p class="eyebrow rise">App de anotações para Android · feito para a S Pen</p>
+      <h1 class="rise d1">Escreva sem nunca chegar <span class="swipe">na borda.</span></h1>
+      <p class="lede rise d2">O TonyNotes é uma folha que <strong>não acaba</strong>: para os lados e para baixo. Ou, se preferir, folhas de verdade, uma atrás da outra. A tinta segue a caneta <strong>sem atraso</strong>.</p>
+      <div class="cta rise d3">
+        <a class="btn" id="dl-hero" href="https://github.com/jgantonio93-arch/escaladeturmas/releases/latest/download/TonyNotes.apk" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
+          Baixar o TonyNotes
+        </a>
+        <a class="ghost" href="#experimente">Testar a caneta aqui</a>
+        <span class="note-arrow hand" aria-hidden="true">
+          <svg viewBox="0 0 44 40"><path d="M40 4 C 30 6, 14 12, 8 32"/><path d="M3 25 L8 33 L15 27"/></svg>
+          sempre a última versão
+        </span>
+      </div>
+      <p class="cta-meta rise d3"><span>APK para Android 10 ou mais novo</span><span>Grátis</span><span>Atualiza por cima, sem perder notas</span></p>
+    </div>
+    <div class="phones" aria-label="Telas do app">
+      <div class="phone back"><img src="shots/barra.webp" alt="Barra de ferramentas em pé, na esquerda, com três cores rápidas" width="620" height="1344"></div>
+      <div class="phone front"><img src="shots/editor.webp" alt="Editor com escrita à mão, marca-texto e uma foto" width="620" height="1344"></div>
+      <span class="tag t1 hand" aria-hidden="true">3 cores na mão</span>
+      <span class="tag t2 hand" aria-hidden="true">nota sem fim →</span>
+    </div>
+  </section>
+
+  <div class="facts" role="list">
+    <div class="fact" role="listitem"><b>6 pincéis</b><span>de caneta-tinteiro a marca-texto chanfrado</span></div>
+    <div class="fact" role="listitem"><b>3% a 800%</b><span>de zoom, com ímã em 100%</span></div>
+    <div class="fact" role="listitem"><b>até 120 Hz</b><span>a tela na taxa máxima do aparelho</span></div>
+    <div class="fact" role="listitem"><b>∞ folhas</b><span>ou quantas você escolher</span></div>
+  </div>
+
+  <section class="sec" id="experimente">
+    <div class="sec-head">
+      <h2>Os pincéis do app, aqui no navegador.</h2>
+      <p>Mesma matemática do TonyNotes: a caneta-tinteiro afina com a velocidade, a caligrafia tem bico a 45°, o lápis tem grão de grafite e o marca-texto tem ponta chanfrada. Use o mouse, o dedo ou uma caneta.</p>
+    </div>
+    <div class="pad">
+      <div class="pad-bar">
+        <div class="brushes" id="brushes" role="group" aria-label="Pincel"></div>
+        <span class="pad-sep" aria-hidden="true"></span>
+        <div class="dots" id="dots" role="group" aria-label="Cores rápidas"></div>
+        <div class="pad-actions">
+          <button class="tool" id="undo" type="button">Desfazer</button>
+          <button class="tool" id="clear" type="button">Limpar</button>
+        </div>
+      </div>
+      <div class="stage" id="stage">
+        <canvas id="base" aria-label="Folha para testar os pincéis"></canvas>
+        <canvas id="live" aria-hidden="true"></canvas>
+        <span class="stage-hint hand" id="hint">escreva aqui ↖</span>
+      </div>
+      <div class="pad-foot">
+        <span>Com caneta, a pressão vale. No mouse, a velocidade faz o papel da pressão.</span>
+        <span>No app, a tinta é desenhada direto no buffer da tela.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="recursos">
+    <div class="sec-head">
+      <h2>Tudo o que cabe num caderno, e um pouco mais.</h2>
+      <p>Pensado a partir do Samsung Notes, com o que faltava nele: a tela que não acaba e uma barra que vai para onde a sua mão está.</p>
+    </div>
+    <div class="features">
+      <div class="feat">
+        <svg viewBox="0 0 28 28" aria-hidden="true"><path d="M14 14c-3-4.5-9-4.5-9 0s6 4.5 9 0 9-4.5 9 0-6 4.5-9 0Z"/></svg>
+        <h3>Tela infinita ou folhas</h3>
+        <p>Escreva para os lados e para baixo sem fim, ou use folhas verticais ou horizontais, em retrato ou paisagem. Com folhas infinitas, a próxima aparece sozinha.</p>
+      </div>
+      <div class="feat">
+        <svg viewBox="0 0 28 28" aria-hidden="true"><path d="M5 23l2.5-7.5L19.5 3.5a2.6 2.6 0 0 1 3.7 3.7L11.2 19.2Z"/><path d="M15.5 7.5l3.7 3.7"/></svg>
+        <h3>Seis pincéis com memória</h3>
+        <p>Caneta-tinteiro, caneta, lápis, caligrafia, pincel e marca-texto. Cada um lembra espessura, opacidade e cor, e você salva favoritos.</p>
+      </div>
+      <div class="feat">
+        <svg viewBox="0 0 28 28" aria-hidden="true"><path d="M4 18c4-1 6-9 10-9s4 6 10 4"/><path d="M19 6l5 0 0 5"/></svg>
+        <h3>Caneta sem atraso</h3>
+        <p>A tinta vai direto para a tela (front buffer), na taxa máxima do aparelho, com previsão de movimento no Android 14 ou mais novo.</p>
+      </div>
+      <div class="feat">
+        <svg viewBox="0 0 28 28" aria-hidden="true"><rect x="4" y="4" width="7" height="20" rx="3.5"/><circle cx="7.5" cy="9" r="1"/><circle cx="7.5" cy="14" r="1"/><circle cx="7.5" cy="19" r="1"/><path d="M15 9h9M15 14h6M15 19h8"/></svg>
+        <h3>A barra vai onde você quer</h3>
+        <p>Arraste a barra pela alça. Perto da borda ela fica em pé e mostra 3 cores rápidas, que você troca segurando o dedo.</p>
+      </div>
+      <div class="feat">
+        <svg viewBox="0 0 28 28" aria-hidden="true"><rect x="4" y="5" width="15" height="13" rx="1.5" stroke-dasharray="3 2.5"/><circle cx="19" cy="18" r="5"/></svg>
+        <h3>Seleção por laço ou retângulo</h3>
+        <p>Inclua até os objetos que só encostam na seleção. Depois mova, gire, redimensione, mude a cor, duplique ou exclua.</p>
+      </div>
+      <div class="feat">
+        <svg viewBox="0 0 28 28" aria-hidden="true"><path d="M6 8V6h16v2M14 6v16M10 22h8"/></svg>
+        <h3>Texto direto na folha</h3>
+        <p>Fonte, tamanho, negrito, itálico, sublinhado, cor e marca-texto num trecho. Gire, espelhe e aumente a caixa de texto.</p>
+      </div>
+      <div class="feat">
+        <svg viewBox="0 0 28 28" aria-hidden="true"><rect x="4" y="6" width="20" height="16" rx="2.5"/><circle cx="10" cy="11.5" r="1.8"/><path d="M5 20l6-5.5 4.5 4 3-3L23 19"/></svg>
+        <h3>Imagens e PDF</h3>
+        <p>Recorte livre ou em formas, filtros, moldura e sombra. Importe um PDF inteiro como fundo e escreva por cima.</p>
+      </div>
+      <div class="feat">
+        <svg viewBox="0 0 28 28" aria-hidden="true"><path d="M3.5 8.5a2 2 0 0 1 2-2h5l2.5 2.5h9.5a2 2 0 0 1 2 2V20a2 2 0 0 1-2 2h-17a2 2 0 0 1-2-2Z"/></svg>
+        <h3>Pastas e busca</h3>
+        <p>Pastas e subpastas com cor, miniaturas das notas e uma busca que não liga para acentos.</p>
+      </div>
+      <div class="feat">
+        <svg viewBox="0 0 28 28" aria-hidden="true"><path d="M8.5 20 4.6 16a1.5 1.5 0 0 1 0-2.1l9-9a1.5 1.5 0 0 1 2.1 0l5.4 5.4a1.5 1.5 0 0 1 0 2.1L13 20.5H8.5Z"/><path d="M8.5 20.5H23M10 10.5l7 7"/></svg>
+        <h3>Borracha de traço ou de área</h3>
+        <p>Apague o traço inteiro ou só por onde a borracha passa. Uma chave apaga somente o marca-texto.</p>
+      </div>
+      <div class="feat">
+        <svg viewBox="0 0 28 28" aria-hidden="true"><path d="M14 4v13M9 12l5 5 5-5M5 23h18"/></svg>
+        <h3>Exportar em PNG e PDF</h3>
+        <p>O PDF é vetorial, então a letra continua nítida. Com folhas, cada folha vira uma página.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="telas">
+    <div class="sec-head">
+      <h2>Por dentro do app.</h2>
+      <p>Telas reais do TonyNotes, geradas a cada versão pelos testes automáticos do projeto.</p>
+    </div>
+    <div class="reel" tabindex="0" aria-label="Telas do app (role para o lado)">
+      <figure><div class="phone"><img src="shots/inicio.webp" alt="Página inicial com pastas coloridas" width="620" height="1344" loading="lazy"></div><figcaption><b>Suas pastas</b>Tudo organizado, com busca.</figcaption></figure>
+      <figure><div class="phone"><img src="shots/editor.webp" alt="Editor com escrita à mão" width="620" height="1344" loading="lazy"></div><figcaption><b>Editor</b>Barra flutuante e zoom.</figcaption></figure>
+      <figure><div class="phone"><img src="shots/barra.webp" alt="Barra em pé com três cores" width="620" height="1344" loading="lazy"></div><figcaption><b>Barra em pé</b>Com 3 cores rápidas.</figcaption></figure>
+      <figure><div class="phone"><img src="shots/marca-texto.webp" alt="Ajustes do marca-texto" width="620" height="1344" loading="lazy"></div><figcaption><b>Marca-texto</b>Transparência, ponta e linhas retas.</figcaption></figure>
+      <figure><div class="phone"><img src="shots/folhas.webp" alt="Folhas verticais pautadas" width="620" height="1344" loading="lazy"></div><figcaption><b>Folhas</b>Verticais, pautadas, sem fim.</figcaption></figure>
+      <figure><div class="phone"><img src="shots/pagina.webp" alt="Painel de página" width="620" height="1344" loading="lazy"></div><figcaption><b>Página</b>Infinita ou folhas, modelo e papel.</figcaption></figure>
+      <figure><div class="phone"><img src="shots/texto.webp" alt="Texto sendo digitado com barra de formatação" width="620" height="1344" loading="lazy"></div><figcaption><b>Texto</b>Formatação acima do teclado.</figcaption></figure>
+      <figure><div class="phone"><img src="shots/imagem.webp" alt="Imagem selecionada com alças" width="620" height="1344" loading="lazy"></div><figcaption><b>Imagens</b>Girar, recortar e ajustar.</figcaption></figure>
+      <figure><div class="phone"><img src="shots/selecao.webp" alt="Opções de seleção" width="620" height="1344" loading="lazy"></div><figcaption><b>Seleção</b>Laço ou retângulo.</figcaption></figure>
+    </div>
+  </section>
+
+  <section class="sec" id="instalar">
+    <div class="sec-head">
+      <h2>Instale em um minuto.</h2>
+      <p>O TonyNotes ainda não está na Play Store. Você instala o arquivo do app direto do celular.</p>
+    </div>
+    <div class="install">
+      <ol class="steps">
+        <li><b>Baixe no celular</b><p>Toque em “Baixar o TonyNotes”. O arquivo TonyNotes.apk vem da versão mais recente, que já passou nos testes automáticos.</p></li>
+        <li><b>Permita a instalação</b><p>Abra o arquivo. Se o Android pedir, permita “instalar apps desconhecidos” para o navegador ou para o app Arquivos.</p></li>
+        <li><b>Instale</b><p>Toque em Instalar. O Play Protect pode avisar que o app não veio da Play Store; toque em “Instalar mesmo assim”.</p></li>
+        <li><b>Para atualizar, repita</b><p>O mesmo botão sempre baixa a última versão. Instale por cima da anterior: suas notas e pastas continuam no aparelho.</p></li>
+      </ol>
+      <div class="card-dl">
+        <div class="card-head">
+          <svg viewBox="0 0 108 108" aria-hidden="true"><use href="#tn-logo"/></svg>
+          <div><p class="eyebrow" style="color:#5E5A52">Link fixo, sempre atualizado</p><h3>TonyNotes para Android</h3></div>
+        </div>
+        <a class="btn" id="dl-card" href="https://github.com/jgantonio93-arch/escaladeturmas/releases/latest/download/TonyNotes.apk" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
+          Baixar o TonyNotes
+        </a>
+        <div class="link-line">
+          <code id="dl-url">https://github.com/jgantonio93-arch/escaladeturmas/releases/latest/download/TonyNotes.apk</code>
+          <button class="copy" id="copy" type="button">Copiar</button>
+        </div>
+        <div class="qr-row">
+          <div class="qr" id="qr" role="img" aria-label="QR code do link de download"></div>
+          <p>Está no computador? Aponte a câmera do celular para o código e baixe direto nele.</p>
+        </div>
+        <p><a class="ghost" href="https://github.com/jgantonio93-arch/escaladeturmas/releases/latest" target="_blank" rel="noopener">O que mudou na última versão</a></p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span class="mark"><svg viewBox="0 0 108 108" aria-hidden="true"><use href="#tn-logo"/></svg>TonyNotes</span>
+    <span>App Android de anotações à mão, com tela infinita e folhas.</span>
+    <a class="ghost" href="https://github.com/jgantonio93-arch/escaladeturmas" target="_blank" rel="noopener">Código no GitHub</a>
+  </footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+(() => {
+  const DL = "https://github.com/jgantonio93-arch/escaladeturmas/releases/latest/download/TonyNotes.apk";
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---- QR code e copiar ----
+  try {
+    if (window.QRCode) new QRCode(document.getElementById("qr"), { text: DL, width: 192, height: 192, colorDark: "#1F1D1A", colorLight: "#FFFFFF", correctLevel: QRCode.CorrectLevel.M });
+  } catch (e) {}
+  const copyBtn = document.getElementById("copy");
+  copyBtn.addEventListener("click", () => {
+    const done = () => { copyBtn.textContent = "Copiado"; setTimeout(() => copyBtn.textContent = "Copiar", 1600); };
+    const select = () => { const r = document.createRange(); r.selectNodeContents(document.getElementById("dl-url")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); copyBtn.textContent = "Selecionado"; };
+    try { navigator.clipboard.writeText(DL).then(done, select); } catch (e) { select(); }
+  });
+
+  // ---- Pincéis: mesma lógica do StrokeBuilder/StrokeRenderer do app ----
+  const BRUSHES = [
+    { id: "fountain", label: "Tinteiro", size: 5, op: 1 },
+    { id: "pen", label: "Caneta", size: 4, op: 1 },
+    { id: "pencil", label: "Lápis", size: 5, op: .9 },
+    { id: "calligraphy", label: "Caligrafia", size: 8, op: 1 },
+    { id: "brush", label: "Pincel", size: 10, op: 1 },
+    { id: "highlighter", label: "Marca-texto", size: 20, op: .45 },
+  ];
+  const INK = ["#1B1B1F", "#D7263D", "#1F5FD1"];
+  const HIGHLIGHT = ["#FFE600", "#9BF26B", "#FF8AD8"];
+  const UNIT = 0.8;
+
+  function builder(type, color, size, op) {
+    return { type, color, op, base: size * UNIT, xs: [], ys: [], ws: [], smoothed: -1, dx: 1, dy: 0, tip: .35 };
+  }
+  function addPoint(b, x, y, pressure) {
+    const p = Math.min(1, Math.max(.05, pressure));
+    const n = b.xs.length;
+    let dx = 0, dy = 0;
+    if (n > 0) {
+      dx = x - b.xs[n - 1]; dy = y - b.ys[n - 1];
+      if (dx * dx + dy * dy < .36) return;
+    }
+    const speed = Math.hypot(dx, dy), base = b.base;
+    let t;
+    switch (b.type) {
+      case "pen": t = base * (.8 + .2 * p); break;
+      case "fountain": { const slow = 1.15 - Math.min(.45, speed / (base * 6 + 1) * .45); t = base * (.3 + .9 * p) * slow; break; }
+      case "pencil": t = base * (.45 + .55 * p); break;
+      case "calligraphy": { const a = n > 0 ? Math.atan2(dy, dx) : Math.PI / 4; const nib = Math.abs(Math.sin(a - Math.PI / 4)); t = base * (.15 + .85 * nib) * (.7 + .3 * p); break; }
+      case "brush": t = base * (.08 + 1.5 * Math.pow(p, 1.5)); break;
+      case "highlighter": {
+        if (speed > 0) { b.dx += (dx / speed - b.dx) * .5; b.dy += (dy / speed - b.dy) * .5; }
+        const l = Math.hypot(b.dx, b.dy) || 1;
+        t = base * (Math.abs(b.dx / l) + b.tip * Math.abs(b.dy / l));
+        break;
+      }
+    }
+    const k = b.type === "highlighter" ? .5 : b.type === "brush" ? .25 : b.type === "calligraphy" ? .45 : .4;
+    const w = b.smoothed < 0 ? t : b.smoothed + (t - b.smoothed) * k;
+    b.smoothed = w;
+    b.xs.push(x); b.ys.push(y); b.ws.push(Math.max(.3, w));
+    if (b.type === "highlighter" && n === 1) b.ws[0] = b.ws[1];
+  }
+  function finish(b) {
+    const n = b.ws.length, taper = b.type === "brush" ? 8 : b.type === "fountain" ? 4 : 0;
+    if (taper && n > taper * 2) for (let i = 0; i < taper; i++) {
+      const f = .25 + .75 * (i + 1) / (taper + 1);
+      if (b.type === "brush") b.ws[i] *= f;
+      b.ws[n - 1 - i] *= f;
+    }
+    return b;
+  }
+  function outline(xs, ys, ws, flat) {
+    const n = xs.length, path = new Path2D();
+    if (!n) return path;
+    if (n === 1) {
+      const h = ws[0] / 2;
+      if (flat) path.rect(xs[0] - h * .35, ys[0] - h, h * .7, h * 2); else path.arc(xs[0], ys[0], h, 0, Math.PI * 2);
+      return path;
+    }
+    const lx = [], ly = [], rx = [], ry = [];
+    let sA = 0, eA = 0;
+    for (let i = 0; i < n; i++) {
+      const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
+      let tx = xs[i1] - xs[i0], ty = ys[i1] - ys[i0];
+      const len = Math.hypot(tx, ty);
+      if (len < 1e-4) { tx = 1; ty = 0; } else { tx /= len; ty /= len; }
+      if (i === 0) sA = Math.atan2(ty, tx);
+      if (i === n - 1) eA = Math.atan2(ty, tx);
+      const h = ws[i] / 2;
+      lx[i] = xs[i] - ty * h; ly[i] = ys[i] + tx * h;
+      rx[i] = xs[i] + ty * h; ry[i] = ys[i] - tx * h;
+    }
+    path.moveTo(lx[0], ly[0]);
+    for (let i = 1; i < n - 1; i++) path.quadraticCurveTo(lx[i], ly[i], (lx[i] + lx[i + 1]) / 2, (ly[i] + ly[i + 1]) / 2);
+    path.lineTo(lx[n - 1], ly[n - 1]);
+    if (flat) path.lineTo(rx[n - 1], ry[n - 1]);
+    else path.arc(xs[n - 1], ys[n - 1], ws[n - 1] / 2, eA + Math.PI / 2, eA - Math.PI / 2, true);
+    for (let i = n - 2; i >= 1; i--) path.quadraticCurveTo(rx[i], ry[i], (rx[i] + rx[i - 1]) / 2, (ry[i] + ry[i - 1]) / 2);
+    path.lineTo(rx[0], ry[0]);
+    if (!flat) path.arc(xs[0], ys[0], ws[0] / 2, sA - Math.PI / 2, sA + Math.PI / 2, true);
+    path.closePath();
+    return path;
+  }
+
+  // Grão do lápis: um pixel de tela por ponto de grão, como no app.
+  let seed = 11;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const GRAIN = 64, grain = new Uint8ClampedArray(GRAIN * GRAIN);
+  for (let i = 0; i < grain.length; i++) { const r = rnd(); grain[i] = r < .1 ? 95 + rnd() * 55 : r < .35 ? 175 + rnd() * 40 : 220 + rnd() * 35; }
+  const grainCache = new Map();
+  function pencilFill(ctx, color, dpr) {
+    let tile = grainCache.get(color);
+    if (!tile) {
+      tile = document.createElement("canvas"); tile.width = tile.height = GRAIN;
+      const g = tile.getContext("2d"), img = g.createImageData(GRAIN, GRAIN);
+      const c = parseInt(color.slice(1), 16), r = c >> 16 & 255, gg = c >> 8 & 255, bb = c & 255;
+      for (let i = 0; i < grain.length; i++) { img.data[i * 4] = r; img.data[i * 4 + 1] = gg; img.data[i * 4 + 2] = bb; img.data[i * 4 + 3] = grain[i]; }
+      g.putImageData(img, 0, 0);
+      grainCache.set(color, tile);
+    }
+    const pat = ctx.createPattern(tile, "repeat");
+    try { pat.setTransform(new DOMMatrix([1 / dpr, 0, 0, 1 / dpr, 0, 0])); } catch (e) {}
+    return pat;
+  }
+  function paint(ctx, b, dpr, extra) {
+    if (!b.xs.length) return;
+    let xs = b.xs, ys = b.ys, ws = b.ws;
+    if (extra && extra.length) {
+      const w = ws[ws.length - 1];
+      xs = xs.concat(extra.map(p => p[0])); ys = ys.concat(extra.map(p => p[1])); ws = ws.concat(extra.map(() => w));
+    }
+    ctx.globalAlpha = b.op;
+    ctx.fillStyle = b.type === "pencil" ? pencilFill(ctx, b.color, dpr) : b.color;
+    ctx.fill(outline(xs, ys, ws, b.type === "highlighter"));
+    ctx.globalAlpha = 1;
+  }
+
+  // ---- Prévias nos botões dos pincéis ----
+  const brushesEl = document.getElementById("brushes"), dotsEl = document.getElementById("dots");
+  let current = BRUSHES[0], color = INK[0];
+  const lastColor = { ink: INK[0], highlight: HIGHLIGHT[0] };
+  const buttons = [];
+  function preview(cv, br, col) {
+    const dpr = window.devicePixelRatio || 1, w = 64, h = 22;
+    cv.width = w * dpr; cv.height = h * dpr;
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const b = builder(br.id, col, Math.min(br.size, br.id === "highlighter" ? 11 : 6), br.op);
+    for (let i = 0; i <= 40; i++) {
+      const f = i / 40;
+      addPoint(b, 5 + f * 54, h / 2 + Math.sin(f * Math.PI * 2) * 5, .35 + .65 * Math.sin(f * Math.PI));
+    }
+    paint(ctx, finish(b), dpr);
+  }
+  BRUSHES.forEach(br => {
+    const btn = document.createElement("button");
+    btn.type = "button"; btn.className = "brush"; btn.setAttribute("aria-pressed", String(br === current));
+    const cv = document.createElement("canvas"); cv.setAttribute("aria-hidden", "true");
+    btn.append(cv, document.createTextNode(br.label));
+    btn.addEventListener("click", () => select(br));
+    brushesEl.append(btn);
+    buttons.push({ br, btn, cv });
+  });
+  function palette() { return current.id === "highlighter" ? HIGHLIGHT : INK; }
+  function renderDots() {
+    dotsEl.textContent = "";
+    palette().forEach((c, i) => {
+      const d = document.createElement("button");
+      d.type = "button"; d.className = "dot"; d.style.background = c;
+      d.setAttribute("aria-label", "Cor rápida " + (i + 1));
+      d.setAttribute("aria-pressed", String(c === color));
+      d.addEventListener("click", () => {
+        color = c; lastColor[current.id === "highlighter" ? "highlight" : "ink"] = c;
+        renderDots(); renderPreviews();
+      });
+      dotsEl.append(d);
+    });
+  }
+  function renderPreviews() {
+    buttons.forEach(({ br, btn, cv }) => {
+      btn.setAttribute("aria-pressed", String(br === current));
+      const col = br === current ? color : br.id === "highlighter" ? lastColor.highlight : lastColor.ink;
+      preview(cv, br, col);
+    });
+  }
+  function select(br) {
+    current = br;
+    color = br.id === "highlighter" ? lastColor.highlight : lastColor.ink;
+    renderDots(); renderPreviews();
+  }
+
+  // ---- Folha de teste ----
+  const stage = document.getElementById("stage"), base = document.getElementById("base"), live = document.getElementById("live"), hint = document.getElementById("hint");
+  const bctx = base.getContext("2d"), lctx = live.getContext("2d");
+  const strokes = [];
+  let dpr = 1, W = 0, H = 0, active = null, pointerId = null, lastT = 0, lastX = 0, lastY = 0, pred = null, raf = 0;
+
+  function resize() {
+    dpr = window.devicePixelRatio || 1;
+    const r = stage.getBoundingClientRect();
+    W = r.width; H = r.height;
+    for (const c of [base, live]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+    bctx.setTransform(dpr, 0, 0, dpr, 0, 0); lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    redraw();
+  }
+  function redraw() {
+    bctx.clearRect(0, 0, W, H);
+    // Marca-texto por baixo da tinta, como num caderno de verdade.
+    for (const s of strokes) if (s.type === "highlighter") paint(bctx, s, dpr);
+    for (const s of strokes) if (s.type !== "highlighter") paint(bctx, s, dpr);
+  }
+  function frame() {
+    raf = 0;
+    lctx.clearRect(0, 0, W, H);
+    if (active) paint(lctx, active, dpr, pred);
+  }
+  const ask = () => { if (!raf) raf = requestAnimationFrame(frame); };
+
+  function pressureOf(e, x, y) {
+    if (e.pointerType === "pen" && e.pressure > 0) return e.pressure;
+    // Mouse e dedo: mais devagar = mais tinta.
+    const dt = Math.max(1, e.timeStamp - lastT), v = Math.hypot(x - lastX, y - lastY) / dt;
+    return Math.min(.95, Math.max(.3, .85 - v * .35));
+  }
+  function pointAt(e) { const r = stage.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+
+  stage.addEventListener("pointerdown", e => {
+    if (active || (e.pointerType === "mouse" && e.button !== 0)) return;
+    stopDemo();
+    pointerId = e.pointerId;
+    try { stage.setPointerCapture(e.pointerId); } catch (_) {}
+    const [x, y] = pointAt(e);
+    lastX = x; lastY = y; lastT = e.timeStamp;
+    active = builder(current.id, color, current.size, current.op);
+    addPoint(active, x, y, e.pointerType === "pen" && e.pressure > 0 ? e.pressure : .6);
+    hint.style.opacity = "0";
+    ask();
+    e.preventDefault();
+  });
+  stage.addEventListener("pointermove", e => {
+    if (!active || e.pointerId !== pointerId) return;
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+    for (const ev of (evs.length ? evs : [e])) {
+      const [x, y] = pointAt(ev);
+      addPoint(active, x, y, pressureOf(ev, x, y));
+      lastX = x; lastY = y; lastT = ev.timeStamp;
+    }
+    pred = null;
+    if (e.getPredictedEvents) {
+      const p = e.getPredictedEvents();
+      if (p.length) pred = p.slice(0, 3).map(pointAt);
+    }
+    ask();
+  });
+  const end = e => {
+    if (!active || e.pointerId !== pointerId) return;
+    strokes.push(finish(active));
+    active = null; pred = null; pointerId = null;
+    redraw(); ask();
+  };
+  stage.addEventListener("pointerup", end);
+  stage.addEventListener("pointercancel", end);
+  document.getElementById("undo").addEventListener("click", () => { stopDemo(); strokes.pop(); redraw(); });
+  document.getElementById("clear").addEventListener("click", () => { stopDemo(); strokes.length = 0; redraw(); hint.style.opacity = "1"; });
+
+  // ---- Demonstração: a folha começa escrita ----
+  function cursive(type, col, size, op, x0, y0, width, lines, rseed) {
+    let s = rseed; const r = () => (s = (s * 16807) % 2147483647) / 2147483647;
+    const out = [];
+    for (let l = 0; l < lines; l++) {
+      let x = x0; const y = y0 + l * 38, endX = x0 + width * (.72 + r() * .28);
+      while (x < endX) {
+        const b = builder(type, col, size, op), letters = 3 + Math.floor(r() * 5), stop = letters * 2 * Math.PI;
+        const pts = [];
+        for (let t = 0; t < stop; t += .32) {
+          const h = Math.floor(t / (2 * Math.PI)) % 3 === 1 ? 19 : 10;
+          pts.push([x + 6 * Math.sin(t), y - h * (.5 - .5 * Math.cos(t)), .45 + .45 * ((Math.sin(t * .5) + 1) / 2)]);
+          x += .8;
+        }
+        out.push({ b, pts });
+        x += 16 + r() * 9;
+      }
+    }
+    return out;
+  }
+  function demoScript() {
+    const m = Math.min(1, W / 900), x0 = 28, y0 = 70;
+    const items = [];
+    const hl = builder("highlighter", "#FFE600", 18, .45), hlPts = [];
+    for (let i = 0; i <= 30; i++) hlPts.push([x0 - 4 + i * (300 * m) / 30, y0 - 4 + Math.sin(i / 5) * .8, .6]);
+    items.push(...cursive("fountain", "#1B1B1F", 4, 1, x0, y0, 330 * m, 2, 7));
+    items.splice(Math.min(4, items.length), 0, { b: hl, pts: hlPts });
+    items.push(...cursive("pen", "#1F5FD1", 3.5, 1, x0, y0 + 112, 260 * m, 2, 19));
+    if (W > 560) {
+      const cx = W * .74, cy = 112, c = builder("pencil", "#5F6368", 5, .9), cp = [];
+      for (let i = 0; i <= 70; i++) { const a = i / 64 * Math.PI * 2 - .4; cp.push([cx + 96 * Math.cos(a), cy + 54 * Math.sin(a), .5 + .3 * Math.sin(i / 9)]); }
+      items.push({ b: c, pts: cp });
+      const k = builder("brush", "#D7263D", 9, 1), kp = [];
+      for (let i = 0; i <= 26; i++) kp.push([cx - 140 + i * 4.6, cy + 150 - i * 3.3, .35 + .6 * Math.sin(i / 26 * Math.PI)]);
+      items.push({ b: k, pts: kp });
+      items.push(...cursive("calligraphy", "#1B1B1F", 7, 1, cx - 70, cy + 6, 120, 1, 31));
+    }
+    return items;
+  }
+  let demo = null;
+  function stopDemo() {
+    touched = true;
+    if (!demo) return;
+    for (const it of demo.items.slice(demo.i)) { it.pts.forEach(p => addPoint(it.b, p[0], p[1], p[2])); strokes.push(finish(it.b)); }
+    demo = null; active = null; redraw(); ask();
+  }
+  let touched = false;
+  function instantDemo() {
+    for (const it of demoScript()) { it.pts.forEach(p => addPoint(it.b, p[0], p[1], p[2])); strokes.push(finish(it.b)); }
+    redraw();
+  }
+  function runDemo() {
+    if (touched) return;
+    strokes.length = 0;
+    const items = demoScript();
+    if (reduce) {
+      for (const it of items) { it.pts.forEach(p => addPoint(it.b, p[0], p[1], p[2])); strokes.push(finish(it.b)); }
+      redraw(); return;
+    }
+    redraw();
+    demo = { items, i: 0, j: 0 };
+    const step = () => {
+      if (!demo) return;
+      const it = demo.items[demo.i];
+      if (!it) { demo = null; return; }
+      for (let k = 0; k < 5 && demo.j < it.pts.length; k++, demo.j++) { const p = it.pts[demo.j]; addPoint(it.b, p[0], p[1], p[2]); }
+      active = it.b;
+      if (demo.j >= it.pts.length) { strokes.push(finish(it.b)); active = null; demo.i++; demo.j = 0; redraw(); }
+      frame();
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  renderDots(); renderPreviews();
+  resize();
+  // A folha já aparece escrita; ao entrar na tela, a escrita se refaz em movimento.
+  instantDemo();
+  new ResizeObserver(() => { const r = stage.getBoundingClientRect(); if (Math.abs(r.width - W) > 1 || Math.abs(r.height - H) > 1) resize(); }).observe(stage);
+  let started = false;
+  const start = () => { if (!started) { started = true; runDemo(); } };
+  if ("IntersectionObserver" in window) {
+    const io = new IntersectionObserver(es => { if (es.some(x => x.isIntersecting)) { start(); io.disconnect(); } }, { threshold: .25 });
+    io.observe(stage);
+  }
+
+})();
+</script>
+</body></html>
