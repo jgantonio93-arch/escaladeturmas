@@ -222,3 +222,58 @@ class FolderGlyphDrawable(private val color: Int) : Drawable() {
     @Deprecated("Deprecated in Java")
     override fun getOpacity() = PixelFormat.TRANSLUCENT
 }
+
+/**
+ * Logo do TonyNotes: quadrado arredondado azul com um "t" escrito à mão e uma faixa
+ * de marca-texto atrás da barra (o mesmo desenho do ícone do app, em 108 x 108).
+ */
+class LogoDrawable(private val sizePx: Int) : Drawable() {
+    private val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        shader = LinearGradient(0f, 0f, 108f, 108f, Color.parseColor("#4060CC"), Color.parseColor("#25389A"), Shader.TileMode.CLAMP)
+    }
+    private val band = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#FFD84D") }
+    private val ink = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 10f
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val stem = Path().apply {
+        moveTo(53f, 41f); lineTo(53f, 60.5f); cubicTo(53f, 71.5f, 63.5f, 74.5f, 71f, 68f)
+    }
+
+    override fun getIntrinsicWidth() = sizePx
+    override fun getIntrinsicHeight() = sizePx
+
+    override fun draw(canvas: Canvas) {
+        val b = bounds
+        val s = minOf(b.width(), b.height()) / 108f
+        canvas.save()
+        canvas.translate(b.left.toFloat(), b.top.toFloat())
+        canvas.scale(s, s)
+        canvas.drawRoundRect(0f, 0f, 108f, 108f, 30f, 30f, bg)
+        // O "t" ocupa mais espaço aqui do que no ícone adaptativo (que tem margem de recorte).
+        canvas.scale(1.25f, 1.25f, 54f, 54f)
+        canvas.translate(0f, -1f)
+        canvas.save()
+        canvas.rotate(-4f, 54f, 40f)
+        canvas.drawRoundRect(30f, 34f, 78f, 47f, 4f, 4f, band)
+        canvas.restore()
+        canvas.drawLine(34.5f, 41f, 73.5f, 41f, ink)
+        canvas.drawPath(stem, ink)
+        canvas.restore()
+    }
+
+    override fun setAlpha(alpha: Int) {
+        bg.alpha = alpha; band.alpha = alpha; ink.alpha = alpha
+    }
+
+    override fun setColorFilter(colorFilter: ColorFilter?) {
+        bg.colorFilter = colorFilter; band.colorFilter = colorFilter; ink.colorFilter = colorFilter
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity() = PixelFormat.TRANSLUCENT
+}
+

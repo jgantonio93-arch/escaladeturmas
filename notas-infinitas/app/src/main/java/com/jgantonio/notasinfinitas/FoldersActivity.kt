@@ -164,7 +164,12 @@ class FoldersActivity : Activity() {
     private fun renderHome() {
         if (homeHead == null) {
             val head = vertical().apply { setPadding(dpi(6f), dpi(44f), dpi(6f), dpi(8f)) }
-            head.addView(label("TonyNotes", 13f, Ui.ACCENT, bold = true).apply { typeface = Ui.BOLD })
+            head.addView(label("TonyNotes", 14f, Ui.ACCENT, bold = true).apply {
+                typeface = Ui.BOLD
+                gravity = Gravity.CENTER_VERTICAL
+                setCompoundDrawablesRelativeWithIntrinsicBounds(LogoDrawable(dpi(22f)), null, null, null)
+                compoundDrawablePadding = dpi(8f)
+            })
             head.addView(title("Suas pastas", 40f).apply { setPadding(0, dpi(4f), 0, dpi(2f)) })
             homeCount = label("", 14f)
             head.addView(homeCount)
