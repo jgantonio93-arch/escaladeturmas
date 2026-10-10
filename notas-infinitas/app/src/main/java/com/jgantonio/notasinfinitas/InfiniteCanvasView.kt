@@ -943,7 +943,9 @@ class InfiniteCanvasView(context: Context) : View(context) {
             canvas.drawRect(sl, st, sr, sb, pagePaint)
             canvas.save()
             canvas.clipRect(sl, st, sr, sb)
-            drawPattern(canvas, r.left, r.top, l.w / 24f)
+            // Meio espaço de folga: as linhas não encostam na borda da folha.
+            val spacing = l.w / 24f
+            drawPattern(canvas, r.left + spacing / 2f, r.top + spacing / 2f, spacing)
             canvas.restore()
             if (n > 1 && sb - st > 180f * density) {
                 canvas.drawText("${i + 1}", (sl + sr) / 2f, sb - 10f * density, pageNumberPaint)

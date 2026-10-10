@@ -98,11 +98,13 @@ class ScreenshotTest {
         // Marca-texto: transparência, tamanho, espessura da ponta e linhas retas
         canvas.pen = PenSettings.default(BrushType.HIGHLIGHTER, Color.parseColor("#FFE600"))
         canvas.tool = InfiniteCanvasView.Tool.PEN
+        editor.relayoutDockForTests()
         editor.openPenTray()
         save(snap(editor), "13-bandeja-marca-texto")
 
         // Seleção: laço ou retângulo, e objetos parcialmente selecionados
         canvas.tool = InfiniteCanvasView.Tool.SELECT
+        editor.relayoutDockForTests()
         editor.openSelectTray()
         save(snap(editor), "14-bandeja-selecao")
         editor.closeTrayForTests()
