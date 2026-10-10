@@ -324,3 +324,20 @@ class PageStyleTile(context: Context, val style: PageStyle, var paper: Int, chec
         canvas.drawRoundRect(r, rad, rad, paint)
     }
 }
+
+/** Slider de -max a +max com o preenchimento saindo do centro (brilho, contraste...). */
+class CenterSlider(context: Context, limit: Float, value: Float, onChange: (Float) -> Unit) :
+    FancySlider(context, -limit, limit, value, onChange) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    override fun drawTrack(canvas: Canvas, cy: Float) {
+        val h = context.dp(3f)
+        paint.color = Color.parseColor("#E4E7EC")
+        canvas.drawRoundRect(RectF(left, cy - h, right, cy + h), h, h, paint)
+        val mid = (left + right) / 2f
+        paint.color = Ui.ACCENT
+        canvas.drawRoundRect(RectF(minOf(mid, thumbX), cy - h, maxOf(mid, thumbX), cy + h), h, h, paint)
+        paint.color = Ui.MUTED
+        canvas.drawCircle(mid, cy, context.dp(2.5f), paint)
+    }
+}

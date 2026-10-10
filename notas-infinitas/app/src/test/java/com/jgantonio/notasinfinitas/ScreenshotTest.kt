@@ -62,6 +62,21 @@ class ScreenshotTest {
 
         editor.showMoreMenu()
         save(withDialog(editor), "7-menu")
+
+        // Imagem: seleção com alças, ajustes e recorte
+        val canvas = editor.canvasForTests
+        val photo = canvas.elementsSnapshot().first { it is ImageElement }
+        canvas.select(photo)
+        save(snap(editor), "8-imagem-selecionada")
+
+        ImageTools.showAdjustments(editor, canvas)
+        save(withDialog(editor), "9-ajustes-imagem")
+
+        canvas.select(canvas.elementsSnapshot().first { it is ImageElement })
+        canvas.startCrop()
+        canvas.setCropShape(InfiniteCanvasView.CropShape.SQUARE)
+        save(snap(editor), "10-recorte")
+        canvas.cancelCrop()
     }
 
     // ---- Captura ---------------------------------------------------------------------
@@ -77,6 +92,11 @@ class ScreenshotTest {
         val decor = a.window.decorView
         layoutRoot(decor, dm.widthPixels, dm.heightPixels)
         val bmp = Bitmap.createBitmap(dm.widthPixels, dm.heightPixels, Bitmap.Config.ARGB_8888)
+        decor.draw(Canvas(bmp))
+        // Imagens carregam em segundo plano: espera e desenha de novo.
+        Thread.sleep(400)
+        ShadowLooper.idleMainLooper()
+        layoutRoot(decor, dm.widthPixels, dm.heightPixels)
         decor.draw(Canvas(bmp))
         return bmp
     }
@@ -124,7 +144,10 @@ class ScreenshotTest {
         val red = Color.parseColor("#D7263D")
 
         val aula = Library.createNote(escola.id, "Aula de física")
+        val photo = samplePhoto(Library.assetsDir(aula.id))
         writeNote(app, aula, listOf(
+            ImageElement(photo, android.graphics.RectF(60f, 430f, 390f, 650f), rotation = -6f,
+                borderWidth = 8f, borderColor = Color.WHITE, shadow = true),
             TextElement("Leis de Newton", 40f, 30f, 30f * unit * 2, ink),
             *handwriting(PenSettings(BrushType.FOUNTAIN, ink, 5f, 100), unit, 40f, 150f, 520f, 3),
             stroke(PenSettings(BrushType.HIGHLIGHTER, Color.parseColor("#FFE600"), 22f, 45), unit,
@@ -157,10 +180,33 @@ class ScreenshotTest {
         return escola to aula
     }
 
+    /** Uma "foto" desenhada (céu, sol e montanhas) para os exemplos de imagem. */
+    private fun samplePhoto(dir: File): String {
+        dir.mkdirs()
+        val w = 900
+        val h = 600
+        val b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val c = Canvas(b)
+        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        p.shader = android.graphics.LinearGradient(0f, 0f, 0f, h.toFloat(), Color.parseColor("#7EC8F2"), Color.parseColor("#FCE3B0"), android.graphics.Shader.TileMode.CLAMP)
+        c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), p)
+        p.shader = null
+        p.color = Color.parseColor("#FFD15C")
+        c.drawCircle(660f, 190f, 80f, p)
+        p.color = Color.parseColor("#3E7C59")
+        c.drawPath(android.graphics.Path().apply { moveTo(0f, 600f); lineTo(0f, 380f); lineTo(260f, 200f); lineTo(520f, 430f); lineTo(900f, 300f); lineTo(900f, 600f); close() }, p)
+        p.color = Color.parseColor("#2C5E43")
+        c.drawPath(android.graphics.Path().apply { moveTo(0f, 600f); lineTo(0f, 500f); lineTo(380f, 360f); lineTo(900f, 520f); lineTo(900f, 600f); close() }, p)
+        val name = "exemplo.jpg"
+        File(dir, name).outputStream().use { b.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+        return name
+    }
+
     private fun writeNote(app: android.content.Context, n: NoteInfo, elements: List<Element>) {
         val data = NoteData(elements, ViewState(60f, 80f, 1.15f), PageStyle.DOTS, Color.WHITE)
         NoteStorage.save(Library.noteFile(n.id), data)
         val view = InfiniteCanvasView(app)
+        view.assetDir = Library.assetsDir(n.id)
         view.load(data)
         view.renderToBitmap(480, 360, 1f)?.let { b ->
             Library.thumbFile(n.id).apply { parentFile?.mkdirs() }.outputStream().use { b.compress(Bitmap.CompressFormat.PNG, 90, it) }

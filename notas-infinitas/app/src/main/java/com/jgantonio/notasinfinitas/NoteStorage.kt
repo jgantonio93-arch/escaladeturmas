@@ -28,14 +28,16 @@ class NoteData(
  *
  * Versão 1: só traços (x, y, pressão) — formato do primeiro protótipo.
  * Versão 2: traços com pincel e espessura por ponto, textos, imagens e plano de fundo.
+ * Versão 3: imagens com rotação, recorte, filtros, moldura, trava etc. (tipo 4).
  */
 object NoteStorage {
     private const val MAGIC = 0x4E494E46 // "NINF"
-    private const val VERSION = 2
+    private const val VERSION = 3
 
     private const val TYPE_STROKE = 1
     private const val TYPE_TEXT = 2
     private const val TYPE_IMAGE = 3
+    private const val TYPE_IMAGE_V3 = 4
 
     fun save(file: File, data: NoteData) {
         file.parentFile?.mkdirs()
@@ -70,10 +72,24 @@ object NoteStorage {
                     out.writeInt(e.color)
                 }
                 is ImageElement -> {
-                    out.writeByte(TYPE_IMAGE)
+                    out.writeByte(TYPE_IMAGE_V3)
                     out.writeUTF(e.file)
                     out.writeFloat(e.rect.left); out.writeFloat(e.rect.top)
                     out.writeFloat(e.rect.right); out.writeFloat(e.rect.bottom)
+                    out.writeFloat(e.rotation)
+                    out.writeBoolean(e.flipH); out.writeBoolean(e.flipV)
+                    out.writeFloat(e.crop.left); out.writeFloat(e.crop.top)
+                    out.writeFloat(e.crop.right); out.writeFloat(e.crop.bottom)
+                    out.writeInt(e.mask.ordinal)
+                    val fm = e.freeMask
+                    out.writeInt(fm?.size ?: 0)
+                    fm?.forEach { out.writeFloat(it) }
+                    out.writeInt(e.opacity)
+                    out.writeInt(e.filter.ordinal)
+                    out.writeFloat(e.brightness); out.writeFloat(e.contrast); out.writeFloat(e.saturation)
+                    out.writeFloat(e.borderWidth); out.writeInt(e.borderColor)
+                    out.writeBoolean(e.shadow); out.writeBoolean(e.locked)
+                    out.writeInt(e.pdfPage)
                 }
             }
         }
@@ -90,7 +106,7 @@ object NoteStorage {
                 if (input.readInt() != MAGIC) return null
                 when (input.readInt()) {
                     1 -> readV1(input)
-                    2 -> readV2(input)
+                    2, 3 -> readV2(input)
                     else -> null
                 }
             }
@@ -144,6 +160,26 @@ object NoteStorage {
                     input.readUTF(),
                     RectF(input.readFloat(), input.readFloat(), input.readFloat(), input.readFloat()),
                 ))
+                TYPE_IMAGE_V3 -> {
+                    val file = input.readUTF()
+                    val rect = RectF(input.readFloat(), input.readFloat(), input.readFloat(), input.readFloat())
+                    val rotation = input.readFloat()
+                    val flipH = input.readBoolean()
+                    val flipV = input.readBoolean()
+                    val crop = RectF(input.readFloat(), input.readFloat(), input.readFloat(), input.readFloat())
+                    val mask = ImageMask.entries.getOrElse(input.readInt()) { ImageMask.RECT }
+                    val fmSize = input.readInt()
+                    val fm = if (fmSize > 0) FloatArray(fmSize) { input.readFloat() } else null
+                    elements.add(ImageElement(
+                        file, rect, rotation, flipH, flipV, crop, mask, fm,
+                        opacity = input.readInt(),
+                        filter = ImageFilter.entries.getOrElse(input.readInt()) { ImageFilter.NONE },
+                        brightness = input.readFloat(), contrast = input.readFloat(), saturation = input.readFloat(),
+                        borderWidth = input.readFloat(), borderColor = input.readInt(),
+                        shadow = input.readBoolean(), locked = input.readBoolean(),
+                        pdfPage = input.readInt(),
+                    ))
+                }
                 else -> throw IllegalStateException("tipo de elemento desconhecido")
             }
         }

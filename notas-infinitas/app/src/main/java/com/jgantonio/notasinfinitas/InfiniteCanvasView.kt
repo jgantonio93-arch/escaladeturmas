@@ -2,7 +2,6 @@ package com.jgantonio.notasinfinitas
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
@@ -13,11 +12,14 @@ import android.os.Build
 import android.view.MotionEvent
 import android.view.View
 import java.io.File
+import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
@@ -35,13 +37,17 @@ class InfiniteCanvasView(context: Context) : View(context) {
 
     enum class Tool { PEN, ERASER, SELECT, TEXT }
 
+    /** Formatos do modo de recorte. */
+    enum class CropShape { RECT, SQUARE, WIDE, ELLIPSE, LASSO }
+
     interface Listener {
         fun onStateChanged()
         fun onSelectionChanged(count: Int)
         fun onTextRequest(x: Float, y: Float, existing: TextElement?)
+        fun onCropModeChanged(active: Boolean)
     }
 
-    private enum class Gesture { NONE, DRAW, ERASE, NAVIGATE, LASSO, MOVE_SEL, SCALE_SEL, TAP_TEXT }
+    private enum class Gesture { NONE, DRAW, ERASE, NAVIGATE, LASSO, MOVE_SEL, SCALE_SEL, ROTATE_SEL, TAP_TEXT, CROP }
 
     // ---- Configuração ------------------------------------------------------
 
@@ -49,7 +55,10 @@ class InfiniteCanvasView(context: Context) : View(context) {
     var tool = Tool.PEN
         set(v) {
             field = v
-            if (v != Tool.SELECT) clearSelection()
+            if (v != Tool.SELECT) {
+                cancelCrop()
+                clearSelection()
+            }
             invalidate()
         }
     lateinit var pen: PenSettings
@@ -63,13 +72,22 @@ class InfiniteCanvasView(context: Context) : View(context) {
         set(v) { field = v; dirty = true; invalidate() }
     var paperColor = Color.WHITE
         set(v) { field = v; dirty = true; invalidate() }
+
+    val images = ImageRenderer { invalidate() }
     var assetDir: File? = null
+        set(v) { field = v; images.dir = v }
 
     val canUndo get() = undoStack.isNotEmpty()
     val canRedo get() = redoStack.isNotEmpty()
     val isEmpty get() = elements.isEmpty()
-    val zoomPercent get() = (scale * 100f).toInt()
+    /** Zoom arredondado (antes era truncado: 0,999 aparecia como 99%). */
+    val zoomPercent get() = (scale * 100f).roundToInt()
     val hasSelection get() = selection.isNotEmpty()
+    val selectedItems: List<Element> get() = selection
+    /** A imagem selecionada, quando a seleção é exatamente uma imagem. */
+    val selectedImage: ImageElement? get() = selection.singleOrNull() as? ImageElement
+    val selectionLocked get() = selection.any { it.locked }
+    val inCropMode get() = cropTarget != null
 
     /** Há mudanças ainda não salvas. */
     var dirty = false
@@ -105,6 +123,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
     private var lastEraseWY = Float.NaN
     private var downX = 0f
     private var downY = 0f
+    private var maxPointers = 1
 
     // Laço e seleção
     private val lassoPath = Path()
@@ -112,15 +131,25 @@ class InfiniteCanvasView(context: Context) : View(context) {
     private val lassoYs = ArrayList<Float>()
     private val selection = ArrayList<Element>()
     private val selectionSet = HashSet<Element>()
-    private var selDx = 0f
-    private var selDy = 0f
-    private var selScale = 1f
-    private var selOriginX = 0f
-    private var selOriginY = 0f
-    private var selStartWX = 0f
-    private var selStartWY = 0f
-    private var selHandleWX = 0f
-    private var selHandleWY = 0f
+    /** Transformação em andamento (mover/escalar/girar), aplicada só na prévia até soltar. */
+    private var selT = Transform()
+    private var gestureFrame: Frame? = null
+    private var startWX = 0f
+    private var startWY = 0f
+
+    // Edição de imagem pelo painel de ajustes (prévia sem gravar no desfazer a cada mudança)
+    private var draftOriginal: ImageElement? = null
+    private var draftCurrent: ImageElement? = null
+
+    // Recorte
+    private var cropTarget: ImageElement? = null
+    private val cropRect = RectF(0f, 0f, 1f, 1f)
+    var cropShape = CropShape.RECT
+        private set
+    private var cropFree = ArrayList<Float>()
+    private var cropDragEdges = 0 // bits: 1=esq, 2=topo, 4=dir, 8=base, 16=mover
+    private var cropLastNX = 0f
+    private var cropLastNY = 0f
 
     // ---- Pintura -----------------------------------------------------------
 
@@ -134,17 +163,23 @@ class InfiniteCanvasView(context: Context) : View(context) {
     private val dashPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1.5f * density
-        color = Color.parseColor("#1F5FD1")
+        color = Ui.ACCENT
         pathEffect = DashPathEffect(floatArrayOf(8f * density, 6f * density), 0f)
     }
-    private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#1F5FD1") }
+    private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.5f * density
+        color = Ui.ACCENT
+    }
+    private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Ui.ACCENT }
     private val handleInner = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    private val handleShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(40, 0, 0, 0) }
+    private val cropShade = Paint().apply { color = Color.argb(110, 15, 18, 24) }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
-    private val placeholderPaint = Paint().apply { color = Color.parseColor("#DDE1E7") }
     private var gridPoints = FloatArray(0)
     private val visibleWorld = RectF()
-    private val bitmaps = HashMap<String, Bitmap?>()
+    private val rotateIcon by lazy { IconDrawable(Icon.ROTATE, Color.WHITE, (16 * density).toInt(), 2f * density) }
+    private val lockIcon by lazy { IconDrawable(Icon.LOCK, Color.WHITE, (14 * density).toInt(), 2f * density) }
 
     init {
         isFocusable = true
@@ -171,14 +206,32 @@ class InfiniteCanvasView(context: Context) : View(context) {
         val ops = recording ?: return
         recording = null
         if (ops.isEmpty()) return
-        undoStack.add(EditAction(ops))
+        pushAction(EditAction(ops))
+    }
+
+    private fun pushAction(a: EditAction) {
+        undoStack.add(a)
         if (undoStack.size > MAX_UNDO) undoStack.removeAt(0)
         redoStack.clear()
         changed()
     }
 
+    /** Troca elementos mantendo a posição de cada um na pilha (uma ação de desfazer). */
+    private fun replaceAll(pairs: List<Pair<Element, Element>>) {
+        begin()
+        for ((old, new) in pairs) {
+            val i = elements.indexOf(old)
+            if (i < 0 || old === new) continue
+            removeAt(i)
+            insertAt(i, new)
+        }
+        commit()
+    }
+
     fun undo() {
         val action = undoStack.removeLastOrNull() ?: return
+        finishDraft()
+        cancelCrop()
         clearSelection()
         action.undo(elements)
         redoStack.add(action)
@@ -187,6 +240,8 @@ class InfiniteCanvasView(context: Context) : View(context) {
 
     fun redo() {
         val action = redoStack.removeLastOrNull() ?: return
+        finishDraft()
+        cancelCrop()
         clearSelection()
         action.redo(elements)
         undoStack.add(action)
@@ -216,15 +271,15 @@ class InfiniteCanvasView(context: Context) : View(context) {
         commit()
     }
 
+    private fun viewCenterWorld() = wx(width / 2f) to wy(height / 2f)
+
     /** Insere uma imagem no meio da área visível e já deixa ela selecionada. */
     fun addImage(file: String, imgW: Int, imgH: Int) {
         val visW = width / scale
-        val visH = height / scale
         val w = min(visW * 0.6f, imgW.toFloat() / density * 1.5f)
         val h = w * imgH / max(1, imgW)
-        val cx = (width / 2f - offsetX) / scale
-        val cy = (height / 2f - offsetY) / scale
-        val e = ImageElement(file, RectF(cx - w / 2, cy - min(h, visH) / 2, cx + w / 2, cy - min(h, visH) / 2 + h))
+        val (cx, cy) = viewCenterWorld()
+        val e = ImageElement(file, RectF(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2))
         begin()
         insertAt(elements.size, e)
         commit()
@@ -232,9 +287,32 @@ class InfiniteCanvasView(context: Context) : View(context) {
         setSelection(listOf(e))
     }
 
+    /** Insere várias imagens (páginas de PDF) por baixo dos traços, numa única ação. */
+    fun addPages(pages: List<ImageElement>) {
+        if (pages.isEmpty()) return
+        begin()
+        pages.forEachIndexed { i, p -> insertAt(i, p) }
+        commit()
+        val r = RectF(pages[0].bounds)
+        // Enquadra a primeira página
+        val fit = min(width / (r.width() + 60f), height / (r.height() + 60f)).coerceIn(MIN_SCALE, 1.5f)
+        scale = fit
+        offsetX = width / 2f - r.centerX() * scale
+        offsetY = max(96f * density, height / 2f - r.height() * scale / 2f) - r.top * scale
+        invalidate()
+        listener?.onStateChanged()
+    }
+
+    /** Ponto (mundo) onde começar a colocar um conteúdo grande: abaixo do que já existe. */
+    fun freeSpotBelow(): Pair<Float, Float> {
+        val c = contentBounds() ?: return 0f to 0f
+        return c.left to c.bottom + 80f
+    }
+
     // ---- Seleção -----------------------------------------------------------
 
     fun clearSelection() {
+        finishDraft()
         if (selection.isEmpty()) return
         selection.clear()
         selectionSet.clear()
@@ -251,6 +329,20 @@ class InfiniteCanvasView(context: Context) : View(context) {
         invalidate()
     }
 
+    /** Seleciona um item específico (troca a ferramenta para seleção). */
+    fun select(e: Element) {
+        if (e !in elements) return
+        tool = Tool.SELECT
+        setSelection(listOf(e))
+    }
+
+    fun elementsSnapshot(): List<Element> = ArrayList(elements)
+
+    fun selectAll() {
+        tool = Tool.SELECT
+        setSelection(elements.filter { !it.locked })
+    }
+
     fun deleteSelection() {
         if (selection.isEmpty()) return
         begin()
@@ -262,7 +354,10 @@ class InfiniteCanvasView(context: Context) : View(context) {
     fun duplicateSelection() {
         if (selection.isEmpty()) return
         val d = 24f * density / scale
-        val copies = selection.map { it.transformed(1f, 0f, 0f, d, d) }
+        val copies = selection.map {
+            val c = it.transformed(Transform.translate(d, d))
+            if (c is ImageElement && c.locked) c.with(locked = false) else c
+        }
         begin()
         for (c in copies) insertAt(elements.size, c)
         commit()
@@ -271,57 +366,328 @@ class InfiniteCanvasView(context: Context) : View(context) {
 
     fun recolorSelection(color: Int) {
         if (selection.isEmpty()) return
-        val replaced = ArrayList<Element>()
-        begin()
-        for (e in selection) {
-            val i = elements.indexOf(e)
-            val n = when (e) {
-                is StrokeElement -> e.withColor(color)
-                is TextElement -> e.withColor(color)
-                else -> e
+        val pairs = selection.map {
+            it to when (it) {
+                is StrokeElement -> it.withColor(color)
+                is TextElement -> it.withColor(color)
+                is ImageElement -> it.with(borderColor = color, borderWidth = if (it.borderWidth > 0f) it.borderWidth else 6f)
             }
-            if (i >= 0 && n !== e) {
-                removeAt(i)
-                insertAt(i, n)
-            }
-            replaced.add(n)
         }
-        commit()
-        setSelection(replaced)
+        replaceAll(pairs)
+        setSelection(pairs.map { it.second })
     }
 
-    private fun selectionBounds(): RectF? {
+    /** Traz a seleção para a frente (true) ou envia para trás (false), mantendo a ordem interna. */
+    fun reorderSelection(toFront: Boolean) {
+        if (selection.isEmpty()) return
+        val ordered = elements.filter { it in selectionSet }
+        begin()
+        for (i in elements.indices.reversed()) if (elements[i] in selectionSet) removeAt(i)
+        if (toFront) ordered.forEach { insertAt(elements.size, it) }
+        else ordered.forEachIndexed { k, e -> insertAt(k, e) }
+        commit()
+        invalidate()
+    }
+
+    /** Aplica [change] às imagens selecionadas (uma ação de desfazer). */
+    fun editImages(change: (ImageElement) -> ImageElement) {
+        val pairs = selection.map { if (it is ImageElement) it to change(it) else it to it }
+        replaceAll(pairs)
+        setSelection(pairs.map { it.second })
+    }
+
+    fun rotateSelection(degrees: Float) {
+        val f = selectionFrame() ?: return
+        val t = Transform(rotation = degrees, ox = f.cx, oy = f.cy)
+        val pairs = selection.map { it to it.transformed(t) }
+        replaceAll(pairs)
+        setSelection(pairs.map { it.second })
+    }
+
+    fun setLocked(locked: Boolean) {
+        editImages { it.with(locked = locked) }
+    }
+
+    /** Troca o arquivo da imagem selecionada mantendo posição, largura e efeitos. */
+    fun replaceSelectedImage(file: String, imgW: Int, imgH: Int) {
+        val img = selectedImage ?: return
+        val w = img.rect.width()
+        val h = w * imgH / max(1, imgW)
+        val n = img.with(file = file, crop = RectF(0f, 0f, 1f, 1f), freeMask = null,
+            mask = if (img.mask == ImageMask.FREE) ImageMask.RECT else img.mask,
+            rect = RectF(img.centerX - w / 2, img.centerY - h / 2, img.centerX + w / 2, img.centerY + h / 2))
+        replaceAll(listOf(img to n))
+        setSelection(listOf(n))
+    }
+
+    // ---- Rascunho de edição de imagem (painel de ajustes) ---------------------------
+
+    fun beginDraft() {
+        val img = selectedImage ?: return
+        draftOriginal = img
+        draftCurrent = img
+    }
+
+    /** Mostra a mudança na hora, sem criar uma entrada de desfazer a cada movimento. */
+    fun updateDraft(change: (ImageElement) -> ImageElement) {
+        val cur = draftCurrent ?: return
+        val n = change(cur)
+        val i = elements.indexOf(cur)
+        if (i < 0) return
+        elements[i] = n
+        draftCurrent = n
+        selection.clear(); selection.add(n)
+        selectionSet.clear(); selectionSet.add(n)
+        invalidate()
+    }
+
+    fun finishDraft() {
+        val orig = draftOriginal ?: return
+        val cur = draftCurrent ?: return
+        draftOriginal = null
+        draftCurrent = null
+        if (orig === cur) return
+        val i = elements.indexOf(cur)
+        if (i < 0) return
+        pushAction(EditAction(listOf(Op.Remove(i, orig), Op.Insert(i, cur))))
+        listener?.onSelectionChanged(selection.size)
+    }
+
+    // ---- Quadro da seleção ---------------------------------------------------------
+
+    /** Quadro (centro, tamanho, ângulo) em coordenadas do mundo. */
+    class Frame(val cx: Float, val cy: Float, val w: Float, val h: Float, val angle: Float) {
+        fun corners(): FloatArray {
+            val t = Transform(rotation = angle, ox = cx, oy = cy)
+            val xs = floatArrayOf(cx - w / 2, cx + w / 2, cx + w / 2, cx - w / 2)
+            val ys = floatArrayOf(cy - h / 2, cy - h / 2, cy + h / 2, cy + h / 2)
+            return FloatArray(8) { i -> if (i % 2 == 0) t.x(xs[i / 2], ys[i / 2]) else t.y(xs[i / 2], ys[i / 2]) }
+        }
+
+        fun contains(px: Float, py: Float, pad: Float): Boolean {
+            val t = Transform(rotation = -angle, ox = cx, oy = cy)
+            val lx = t.x(px, py) - cx
+            val ly = t.y(px, py) - cy
+            return abs(lx) <= w / 2 + pad && abs(ly) <= h / 2 + pad
+        }
+    }
+
+    private fun selectionFrame(): Frame? {
         if (selection.isEmpty()) return null
+        val img = selectedImage
+        if (img != null) return Frame(img.centerX, img.centerY, img.rect.width(), img.rect.height(), img.rotation)
         val r = RectF(selection[0].bounds)
         for (e in selection) r.union(e.bounds)
-        return r
+        return Frame(r.centerX(), r.centerY(), r.width(), r.height(), 0f)
     }
 
-    /** Retângulo da seleção na tela, já com o movimento/escala em andamento. */
-    private fun selectionScreenRect(): RectF? {
-        val b = selectionBounds() ?: return null
-        fun tx(v: Float) = ((v - selOriginX) * selScale + selOriginX + selDx) * scale + offsetX
-        fun ty(v: Float) = ((v - selOriginY) * selScale + selOriginY + selDy) * scale + offsetY
-        val pad = 8f * density
-        return RectF(tx(b.left) - pad, ty(b.top) - pad, tx(b.right) + pad, ty(b.bottom) + pad)
+    /** Cantos do quadro na tela, já com o gesto em andamento. */
+    private fun frameScreenCorners(f: Frame): FloatArray {
+        val c = f.corners()
+        val pad = 6f * density / scale
+        // Afasta cada canto do centro um pouco (folga visual)
+        for (i in 0 until 4) {
+            val dx = c[i * 2] - f.cx
+            val dy = c[i * 2 + 1] - f.cy
+            val len = max(0.001f, hypot(dx, dy))
+            c[i * 2] += dx / len * pad * 1.4f
+            c[i * 2 + 1] += dy / len * pad * 1.4f
+        }
+        for (i in 0 until 4) {
+            val x = c[i * 2]
+            val y = c[i * 2 + 1]
+            c[i * 2] = selT.x(x, y) * scale + offsetX
+            c[i * 2 + 1] = selT.y(x, y) * scale + offsetY
+        }
+        return c
+    }
+
+    /** Posição da alça de girar na tela: acima do meio da borda de cima. */
+    private fun rotateHandle(c: FloatArray): Pair<Float, Float> {
+        val mx = (c[0] + c[2]) / 2f
+        val my = (c[1] + c[3]) / 2f
+        val bx = (c[4] + c[6]) / 2f
+        val by = (c[5] + c[7]) / 2f
+        val len = max(0.001f, hypot(mx - bx, my - by))
+        val off = 34f * density
+        return (mx + (mx - bx) / len * off) to (my + (my - by) / len * off)
     }
 
     private fun commitSelectionTransform() {
-        if (selDx == 0f && selDy == 0f && selScale == 1f) return
-        val moved = ArrayList<Element>()
-        begin()
-        for (e in selection) {
-            val i = elements.indexOf(e)
-            val n = e.transformed(selScale, selOriginX, selOriginY, selDx, selDy)
-            if (i >= 0) {
-                removeAt(i)
-                insertAt(i, n)
-            }
-            moved.add(n)
+        if (selT.isIdentity) {
+            selT = Transform()
+            return
         }
-        commit()
-        selDx = 0f; selDy = 0f; selScale = 1f
-        setSelection(moved)
+        val t = selT
+        selT = Transform()
+        val pairs = selection.map { it to it.transformed(t) }
+        replaceAll(pairs)
+        setSelection(pairs.map { it.second })
+    }
+
+    // ---- Recorte -------------------------------------------------------------------
+
+    fun startCrop() {
+        val img = selectedImage ?: return
+        if (img.locked) return
+        cropTarget = img
+        cropRect.set(img.crop)
+        cropFree.clear()
+        cropShape = when (img.mask) {
+            ImageMask.ELLIPSE -> CropShape.ELLIPSE
+            ImageMask.FREE -> CropShape.LASSO
+            else -> CropShape.RECT
+        }
+        img.freeMask?.let { m -> cropFree.addAll(m.toList()) }
+        listener?.onCropModeChanged(true)
+        invalidate()
+    }
+
+    fun setCropShape(shape: CropShape) {
+        val img = cropTarget ?: return
+        cropShape = shape
+        if (shape == CropShape.LASSO) {
+            cropFree.clear()
+        } else {
+            val aspect = when (shape) {
+                CropShape.SQUARE, CropShape.ELLIPSE -> if (shape == CropShape.SQUARE) 1f else null
+                CropShape.WIDE -> 16f / 9f
+                else -> null
+            }
+            if (aspect != null) fitAspect(img, aspect)
+        }
+        invalidate()
+    }
+
+    /** Maior retângulo com a proporção [aspect] (largura/altura) centrado no recorte atual. */
+    private fun fitAspect(img: ImageElement, aspect: Float) {
+        val full = img.fullLocalFrame()
+        val fw = full.width()
+        val fh = full.height()
+        val cx = cropRect.centerX()
+        val cy = cropRect.centerY()
+        var wn = 1f
+        var hn = wn * fw / (fh * aspect)
+        if (hn > 1f) {
+            hn = 1f
+            wn = hn * fh * aspect / fw
+        }
+        val l = (cx - wn / 2f).coerceIn(0f, 1f - wn)
+        val t = (cy - hn / 2f).coerceIn(0f, 1f - hn)
+        cropRect.set(l, t, l + wn, t + hn)
+    }
+
+    fun resetCrop() {
+        cropRect.set(0f, 0f, 1f, 1f)
+        cropFree.clear()
+        cropShape = CropShape.RECT
+        invalidate()
+    }
+
+    fun applyCrop() {
+        val img = cropTarget ?: return
+        val n = when (cropShape) {
+            CropShape.LASSO -> {
+                if (cropFree.size >= 6) {
+                    val xs = cropFree.filterIndexed { i, _ -> i % 2 == 0 }
+                    val ys = cropFree.filterIndexed { i, _ -> i % 2 == 1 }
+                    val r = RectF(xs.min().coerceIn(0f, 1f), ys.min().coerceIn(0f, 1f), xs.max().coerceIn(0f, 1f), ys.max().coerceIn(0f, 1f))
+                    if (r.width() < 0.01f || r.height() < 0.01f) img
+                    else img.withCrop(r, ImageMask.FREE, cropFree.toFloatArray())
+                } else img
+            }
+            CropShape.ELLIPSE -> img.withCrop(RectF(cropRect), ImageMask.ELLIPSE, null)
+            else -> img.withCrop(RectF(cropRect),
+                if (img.mask == ImageMask.ROUNDED) ImageMask.ROUNDED else ImageMask.RECT, null)
+        }
+        cropTarget = null
+        listener?.onCropModeChanged(false)
+        if (n !== img) {
+            replaceAll(listOf(img to n))
+            setSelection(listOf(n))
+        }
+        invalidate()
+    }
+
+    fun cancelCrop() {
+        if (cropTarget == null) return
+        cropTarget = null
+        listener?.onCropModeChanged(false)
+        invalidate()
+    }
+
+    /** Ponto do mundo -> fração (0..1) da imagem original. */
+    private fun toImageFraction(img: ImageElement, px: Float, py: Float): Pair<Float, Float> {
+        var (lx, ly) = img.toLocal(px, py)
+        if (img.flipH) lx = -lx
+        if (img.flipV) ly = -ly
+        val full = img.fullLocalFrame()
+        return (lx - full.left) / full.width() to (ly - full.top) / full.height()
+    }
+
+    private fun cropDown(px: Float, py: Float) {
+        val img = cropTarget ?: return
+        val (nx, ny) = toImageFraction(img, px, py)
+        cropLastNX = nx
+        cropLastNY = ny
+        if (cropShape == CropShape.LASSO) {
+            cropFree.clear()
+            cropFree.add(nx.coerceIn(0f, 1f)); cropFree.add(ny.coerceIn(0f, 1f))
+            return
+        }
+        val full = img.fullLocalFrame()
+        val tx = 24f * density / scale / full.width()
+        val ty = 24f * density / scale / full.height()
+        var e = 0
+        if (ny in cropRect.top - ty..cropRect.bottom + ty) {
+            if (abs(nx - cropRect.left) < tx) e = e or 1
+            if (abs(nx - cropRect.right) < tx) e = e or 4
+        }
+        if (nx in cropRect.left - tx..cropRect.right + tx) {
+            if (abs(ny - cropRect.top) < ty) e = e or 2
+            if (abs(ny - cropRect.bottom) < ty) e = e or 8
+        }
+        if (e == 0 && cropRect.contains(nx, ny)) e = 16
+        cropDragEdges = e
+    }
+
+    private fun cropMove(px: Float, py: Float) {
+        val img = cropTarget ?: return
+        val (nx, ny) = toImageFraction(img, px, py)
+        if (cropShape == CropShape.LASSO) {
+            cropFree.add(nx.coerceIn(0f, 1f)); cropFree.add(ny.coerceIn(0f, 1f))
+            invalidate()
+            return
+        }
+        val dx = nx - cropLastNX
+        val dy = ny - cropLastNY
+        cropLastNX = nx
+        cropLastNY = ny
+        val minN = 0.04f
+        val r = cropRect
+        val e = cropDragEdges
+        if (e == 16) {
+            val mx = dx.coerceIn(-r.left, 1f - r.right)
+            val my = dy.coerceIn(-r.top, 1f - r.bottom)
+            r.offset(mx, my)
+        } else {
+            if (e and 1 != 0) r.left = (r.left + dx).coerceIn(0f, r.right - minN)
+            if (e and 4 != 0) r.right = (r.right + dx).coerceIn(r.left + minN, 1f)
+            if (e and 2 != 0) r.top = (r.top + dy).coerceIn(0f, r.bottom - minN)
+            if (e and 8 != 0) r.bottom = (r.bottom + dy).coerceIn(r.top + minN, 1f)
+            val aspect = when (cropShape) {
+                CropShape.SQUARE -> 1f
+                CropShape.WIDE -> 16f / 9f
+                else -> null
+            }
+            if (aspect != null && e != 0) {
+                val full = img.fullLocalFrame()
+                val hn = r.width() * full.width() / (full.height() * aspect)
+                if (e and 2 != 0 && e and 8 == 0) r.top = (r.bottom - hn).coerceAtLeast(0f)
+                else r.bottom = (r.top + hn).coerceAtMost(1f)
+            }
+        }
+        invalidate()
     }
 
     // ---- Câmera, carregar e salvar -----------------------------------------
@@ -331,7 +697,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
         val content = contentBounds()
         if (content == null) {
             scale = 1f
-            offsetX = width * 0.1f
+            offsetX = width * 0.08f
             offsetY = max(height * 0.1f, 96f * density)
         } else {
             val fit = min(width / (content.width() + 80f), height / (content.height() + 80f))
@@ -339,6 +705,18 @@ class InfiniteCanvasView(context: Context) : View(context) {
             offsetX = width / 2f - content.centerX() * scale
             offsetY = height / 2f - content.centerY() * scale
         }
+        invalidate()
+        listener?.onStateChanged()
+    }
+
+    /** Zoom para [target] (1 = 100%) mantendo o centro da tela no lugar. */
+    fun zoomTo(target: Float) {
+        val t = target.coerceIn(MIN_SCALE, MAX_SCALE)
+        val cx = width / 2f
+        val cy = height / 2f
+        offsetX = cx - (cx - offsetX) * (t / scale)
+        offsetY = cy - (cy - offsetY) * (t / scale)
+        scale = t
         invalidate()
         listener?.onStateChanged()
     }
@@ -389,15 +767,15 @@ class InfiniteCanvasView(context: Context) : View(context) {
         c.drawColor(paperColor)
         c.scale(s, s)
         c.translate(pad - content.left, pad - content.top)
-        drawContent(c, null)
+        drawContent(c, null, s)
         return bmp
     }
 
     /** Desenha os elementos num canvas já transformado para o mundo. */
-    fun drawContent(canvas: Canvas, clip: RectF?) {
+    fun drawContent(canvas: Canvas, clip: RectF?, renderScale: Float = 1f) {
         for (e in elements) {
             if (clip != null && !RectF.intersects(e.bounds, clip)) continue
-            drawElement(canvas, e)
+            drawElement(canvas, e, renderScale, sync = true)
         }
     }
 
@@ -435,6 +813,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
 
     private fun onDown(e: MotionEvent) {
         activePointerId = e.getPointerId(0)
+        maxPointers = 1
         val x = e.getX(0)
         val y = e.getY(0)
         downX = x
@@ -444,7 +823,15 @@ class InfiniteCanvasView(context: Context) : View(context) {
             // Entrega os pontos da caneta sem esperar o próximo frame: menos atraso.
             requestUnbufferedDispatch(e)
         }
-        if (!pen && !fingerDraws) {
+        // No recorte, caneta e dedo ajustam o recorte (dois dedos ainda movem a tela).
+        if (cropTarget != null) {
+            gesture = Gesture.CROP
+            cropDown(wx(x), wy(y))
+            return
+        }
+        // Com seleção, o dedo também pode arrastar/girar/escalar a seleção.
+        val selGesture = if (tool == Tool.SELECT && selection.isNotEmpty()) selectionGestureAt(x, y) else null
+        if (!pen && !fingerDraws && (selGesture == null || selGesture == Gesture.LASSO)) {
             gesture = Gesture.NAVIGATE
             resetNavigation(e, -1)
             return
@@ -456,7 +843,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
             tool == Tool.PEN -> Gesture.DRAW
             tool == Tool.ERASER -> Gesture.ERASE
             tool == Tool.TEXT -> Gesture.TAP_TEXT
-            else -> selectionGestureAt(x, y)
+            else -> selGesture ?: Gesture.LASSO
         }
         when (gesture) {
             Gesture.DRAW -> {
@@ -471,18 +858,16 @@ class InfiniteCanvasView(context: Context) : View(context) {
                 eraseAt(x, y)
             }
             Gesture.LASSO -> {
-                clearSelection()
                 lassoXs.clear(); lassoYs.clear()
                 lassoPath.reset()
                 lassoPath.moveTo(x, y)
                 lassoXs.add(wx(x)); lassoYs.add(wy(y))
             }
-            Gesture.MOVE_SEL, Gesture.SCALE_SEL -> {
-                val b = selectionBounds()!!
-                selStartWX = wx(x); selStartWY = wy(y)
-                selOriginX = b.left; selOriginY = b.top
-                selHandleWX = b.right; selHandleWY = b.bottom
-                selDx = 0f; selDy = 0f; selScale = 1f
+            Gesture.MOVE_SEL, Gesture.SCALE_SEL, Gesture.ROTATE_SEL -> {
+                finishDraft()
+                gestureFrame = selectionFrame()
+                startWX = wx(x); startWY = wy(y)
+                selT = Transform()
             }
             else -> Unit
         }
@@ -491,14 +876,19 @@ class InfiniteCanvasView(context: Context) : View(context) {
     private fun pen(): PenSettings = pen
 
     private fun selectionGestureAt(x: Float, y: Float): Gesture {
-        val r = selectionScreenRect() ?: return Gesture.LASSO
-        val handleR = 28f * density
-        if (hypot(x - r.right, y - r.bottom) <= handleR) return Gesture.SCALE_SEL
-        if (r.contains(x, y)) return Gesture.MOVE_SEL
+        val f = selectionFrame() ?: return Gesture.LASSO
+        if (selectionLocked) return Gesture.LASSO
+        val c = frameScreenCorners(f)
+        val r = 26f * density
+        val (rx, ry) = rotateHandle(c)
+        if (hypot(x - rx, y - ry) <= r) return Gesture.ROTATE_SEL
+        if (hypot(x - c[4], y - c[5]) <= r) return Gesture.SCALE_SEL
+        if (f.contains(wx(x), wy(y), 10f * density / scale)) return Gesture.MOVE_SEL
         return Gesture.LASSO
     }
 
     private fun onPointerDown(e: MotionEvent) {
+        maxPointers = max(maxPointers, e.pointerCount)
         when (gesture) {
             Gesture.NAVIGATE -> resetNavigation(e, -1)
             Gesture.NONE -> Unit
@@ -545,15 +935,31 @@ class InfiniteCanvasView(context: Context) : View(context) {
                 invalidate()
             }
             Gesture.MOVE_SEL -> {
-                selDx = wx(x) - selStartWX
-                selDy = wy(y) - selStartWY
+                selT = Transform.translate(wx(x) - startWX, wy(y) - startWY)
                 invalidate()
             }
             Gesture.SCALE_SEL -> {
-                val num = (wx(x) - selOriginX) + (wy(y) - selOriginY)
-                val den = (selHandleWX - selOriginX) + (selHandleWY - selOriginY)
-                if (den > 0.01f) selScale = (num / den).coerceIn(0.1f, 20f)
+                val f = gestureFrame ?: return
+                val d0 = hypot(startWX - f.cx, startWY - f.cy)
+                val d1 = hypot(wx(x) - f.cx, wy(y) - f.cy)
+                if (d0 > 0.01f) selT = Transform(scale = (d1 / d0).coerceIn(0.05f, 40f), ox = f.cx, oy = f.cy)
                 invalidate()
+            }
+            Gesture.ROTATE_SEL -> {
+                val f = gestureFrame ?: return
+                val a0 = Math.toDegrees(atan2((startWY - f.cy).toDouble(), (startWX - f.cx).toDouble()))
+                val a1 = Math.toDegrees(atan2((wy(y) - f.cy).toDouble(), (wx(x) - f.cx).toDouble()))
+                var rot = (a1 - a0).toFloat()
+                // "Imã" nos ângulos retos
+                val target = f.angle + rot
+                val snapped = (target / 90f).roundToInt() * 90f
+                if (abs(target - snapped) < 4f) rot = snapped - f.angle
+                selT = Transform(rotation = rot, ox = f.cx, oy = f.cy)
+                invalidate()
+            }
+            Gesture.CROP -> {
+                for (h in 0 until e.historySize) cropMove(wx(e.getHistoricalX(idx, h)), wy(e.getHistoricalY(idx, h)))
+                cropMove(wx(x), wy(y))
             }
             else -> Unit
         }
@@ -568,6 +974,13 @@ class InfiniteCanvasView(context: Context) : View(context) {
     }
 
     private fun onUp(e: MotionEvent) {
+        if (gesture == Gesture.NAVIGATE && tool == Tool.SELECT && maxPointers == 1 &&
+            hypot(e.x - downX, e.y - downY) < 10f * density
+        ) {
+            // Toque de dedo com a seleção ativa: seleciona o item tocado.
+            val hit = hitTest(wx(downX), wy(downY))
+            if (hit != null) setSelection(listOf(hit)) else clearSelection()
+        }
         if (gesture != Gesture.NAVIGATE && gesture != Gesture.NONE) finishGesture(e)
         gesture = Gesture.NONE
         activePointerId = MotionEvent.INVALID_POINTER_ID
@@ -583,6 +996,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
             gesture = Gesture.NONE
             return
         }
+        val tapped = hypot(e.x - downX, e.y - downY) < 10f * density
         when (gesture) {
             Gesture.DRAW -> {
                 val b = builder
@@ -599,26 +1013,56 @@ class InfiniteCanvasView(context: Context) : View(context) {
             }
             Gesture.ERASE -> commit()
             Gesture.LASSO -> {
-                if (lassoXs.size >= 3) {
+                if (tapped) {
+                    // Toque simples: seleciona o item tocado (inclusive imagens travadas).
+                    val hit = hitTest(wx(downX), wy(downY))
+                    if (hit != null) setSelection(listOf(hit)) else clearSelection()
+                } else if (lassoXs.size >= 3) {
                     val lasso = Lasso(lassoXs.toFloatArray(), lassoYs.toFloatArray())
                     setSelection(elements.filter { it.insideLasso(lasso) })
                 }
                 lassoPath.reset()
             }
-            Gesture.MOVE_SEL, Gesture.SCALE_SEL -> commitSelectionTransform()
+            Gesture.MOVE_SEL, Gesture.SCALE_SEL, Gesture.ROTATE_SEL -> {
+                gestureFrame = null
+                if (tapped && gesture == Gesture.MOVE_SEL) {
+                    selT = Transform()
+                    // Toque dentro da seleção: troca para o item tocado, se for outro.
+                    val hit = hitTest(wx(downX), wy(downY))
+                    if (hit != null && selection.size > 1) setSelection(listOf(hit))
+                } else {
+                    commitSelectionTransform()
+                }
+            }
             Gesture.TAP_TEXT -> {
-                if (hypot(e.x - downX, e.y - downY) < 12f * density) {
+                if (tapped) {
                     val px = wx(downX)
                     val py = wy(downY)
                     val hit = elements.lastOrNull { it is TextElement && it.bounds.contains(px, py) } as TextElement?
                     listener?.onTextRequest(px, py, hit)
                 }
             }
+            Gesture.CROP -> invalidate()
             else -> Unit
         }
         gesture = Gesture.NONE
         eraserX = -1f
         invalidate()
+    }
+
+    /** Item no topo da pilha sob o ponto (mundo). */
+    private fun hitTest(px: Float, py: Float): Element? {
+        val r = 10f * density / scale
+        for (i in elements.indices.reversed()) {
+            val e = elements[i]
+            val hit = when (e) {
+                is ImageElement -> e.contains(px, py)
+                is TextElement -> e.bounds.contains(px, py)
+                is StrokeElement -> e.hits(px, py, r)
+            }
+            if (hit) return e
+        }
+        return null
     }
 
     /** Cancela o que a ferramenta estava fazendo (palma detectada, segundo dedo...). */
@@ -627,7 +1071,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
             Gesture.DRAW -> builder = null
             Gesture.ERASE -> commit()
             Gesture.LASSO -> lassoPath.reset()
-            Gesture.MOVE_SEL, Gesture.SCALE_SEL -> { selDx = 0f; selDy = 0f; selScale = 1f }
+            Gesture.MOVE_SEL, Gesture.SCALE_SEL, Gesture.ROTATE_SEL -> selT = Transform()
             else -> Unit
         }
         eraserX = -1f
@@ -726,7 +1170,9 @@ class InfiniteCanvasView(context: Context) : View(context) {
     private fun navigate(e: MotionEvent) {
         val (fx, fy, span) = focus(e, -1)
         if (lastSpan > 10f && span > 10f) {
-            val newScale = (scale * span / lastSpan).coerceIn(MIN_SCALE, MAX_SCALE)
+            var newScale = (scale * span / lastSpan).coerceIn(MIN_SCALE, MAX_SCALE)
+            // "Ímã" em 100%: fica fácil voltar ao tamanho real com a pinça.
+            if (abs(newScale - 1f) < 0.035f) newScale = 1f
             // Zoom em torno do ponto entre os dedos.
             offsetX = lastFocusX - (lastFocusX - offsetX) * (newScale / scale)
             offsetY = lastFocusY - (lastFocusY - offsetY) * (newScale / scale)
@@ -749,6 +1195,11 @@ class InfiniteCanvasView(context: Context) : View(context) {
 
     // ---- Renderização ------------------------------------------------------
 
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        images.close()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         canvas.drawColor(paperColor)
@@ -758,35 +1209,141 @@ class InfiniteCanvasView(context: Context) : View(context) {
         canvas.save()
         canvas.translate(offsetX, offsetY)
         canvas.scale(scale, scale)
-        val moving = selDx != 0f || selDy != 0f || selScale != 1f
+        val moving = !selT.isIdentity
+        val crop = cropTarget
         for (e in elements) {
+            if (e === crop) continue
             if (moving && e in selectionSet) {
                 canvas.save()
-                canvas.translate(selDx, selDy)
-                canvas.translate(selOriginX, selOriginY)
-                canvas.scale(selScale, selScale)
-                canvas.translate(-selOriginX, -selOriginY)
-                drawElement(canvas, e)
+                selT.applyTo(canvas)
+                drawElement(canvas, e, scale, sync = false)
                 canvas.restore()
             } else if (RectF.intersects(e.bounds, visibleWorld)) {
-                drawElement(canvas, e)
+                drawElement(canvas, e, scale, sync = false)
             }
         }
         builder?.let { StrokeRenderer.drawBuilder(canvas, it) }
+        if (crop != null) drawCrop(canvas, crop)
         canvas.restore()
 
         if (gesture == Gesture.LASSO) canvas.drawPath(lassoPath, dashPaint)
-        selectionScreenRect()?.let { r ->
-            canvas.drawRect(r, dashPaint)
-            canvas.drawCircle(r.right, r.bottom, 11f * density, handlePaint)
-            canvas.drawCircle(r.right, r.bottom, 5f * density, handleInner)
-        }
+        if (crop == null) drawSelection(canvas)
         if (eraserX >= 0f) {
             canvas.drawCircle(eraserX, eraserY, eraserSize * density, eraserPaint)
         }
     }
 
-    private fun drawElement(canvas: Canvas, e: Element) {
+    private fun drawSelection(canvas: Canvas) {
+        val f = selectionFrame() ?: return
+        val c = frameScreenCorners(f)
+        val p = Path().apply {
+            moveTo(c[0], c[1]); lineTo(c[2], c[3]); lineTo(c[4], c[5]); lineTo(c[6], c[7]); close()
+        }
+        val locked = selectionLocked
+        framePaint.color = if (locked) Color.parseColor("#8A94A6") else Ui.ACCENT
+        canvas.drawPath(p, if (selection.size == 1) framePaint else dashPaint)
+        if (locked) {
+            // Selo de cadeado no canto
+            val (x, y) = c[0] to c[1]
+            canvas.drawCircle(x, y, 13f * density, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#8A94A6") })
+            val s = (14 * density).toInt()
+            lockIcon.setBounds((x - s / 2).toInt(), (y - s / 2).toInt(), (x + s / 2).toInt(), (y + s / 2).toInt())
+            lockIcon.draw(canvas)
+            return
+        }
+        // Cantos
+        for (i in listOf(0, 1, 3)) {
+            canvas.drawCircle(c[i * 2], c[i * 2 + 1], 5f * density, handleInner)
+            canvas.drawCircle(c[i * 2], c[i * 2 + 1], 5f * density, framePaint)
+        }
+        // Alça de escala (canto inferior direito)
+        canvas.drawCircle(c[4], c[5] + 1.5f * density, 12f * density, handleShadow)
+        canvas.drawCircle(c[4], c[5], 11f * density, handlePaint)
+        canvas.drawCircle(c[4], c[5], 4.5f * density, handleInner)
+        // Alça de rotação
+        val (rx, ry) = rotateHandle(c)
+        canvas.drawLine((c[0] + c[2]) / 2f, (c[1] + c[3]) / 2f, rx, ry, framePaint)
+        canvas.drawCircle(rx, ry + 1.5f * density, 14f * density, handleShadow)
+        canvas.drawCircle(rx, ry, 13f * density, handlePaint)
+        val s = (16 * density).toInt()
+        rotateIcon.setBounds((rx - s / 2).toInt(), (ry - s / 2).toInt(), (rx + s / 2).toInt(), (ry + s / 2).toInt())
+        rotateIcon.draw(canvas)
+        // Ângulo durante a rotação
+        if (gesture == Gesture.ROTATE_SEL) {
+            val a = ImageElement.normalizeAngle(f.angle + selT.rotation).roundToInt()
+            textPaint.textSize = 13f * density
+            textPaint.color = Ui.ACCENT
+            textPaint.textAlign = Paint.Align.CENTER
+            canvas.drawText("$a°", rx, ry - 22f * density, textPaint)
+            textPaint.textAlign = Paint.Align.LEFT
+        }
+    }
+
+    /** Modo de recorte: imagem inteira escurecida, área mantida em destaque e alças. */
+    private fun drawCrop(canvas: Canvas, img: ImageElement) {
+        val full = img.fullLocalFrame()
+        canvas.save()
+        canvas.translate(img.centerX, img.centerY)
+        canvas.rotate(img.rotation)
+        canvas.scale(if (img.flipH) -1f else 1f, if (img.flipV) -1f else 1f)
+        canvas.translate(-img.centerX, -img.centerY)
+        // A imagem inteira, sem recorte
+        images.draw(canvas, img, scale, sync = false, showFull = true)
+        canvas.restore()
+
+        canvas.save()
+        canvas.translate(img.centerX, img.centerY)
+        canvas.rotate(img.rotation)
+        canvas.scale(if (img.flipH) -1f else 1f, if (img.flipV) -1f else 1f)
+        fun fx(n: Float) = full.left + n * full.width()
+        fun fy(n: Float) = full.top + n * full.height()
+        val keep = Path()
+        if (cropShape == CropShape.LASSO) {
+            if (cropFree.size >= 4) {
+                keep.moveTo(fx(cropFree[0]), fy(cropFree[1]))
+                var i = 2
+                while (i + 1 < cropFree.size) { keep.lineTo(fx(cropFree[i]), fy(cropFree[i + 1])); i += 2 }
+                keep.close()
+            }
+        } else {
+            val r = RectF(fx(cropRect.left), fy(cropRect.top), fx(cropRect.right), fy(cropRect.bottom))
+            if (cropShape == CropShape.ELLIPSE) keep.addOval(r, Path.Direction.CW) else keep.addRect(r, Path.Direction.CW)
+        }
+        // Escurece fora da área mantida
+        val shade = Path().apply {
+            addRect(full, Path.Direction.CW)
+            if (!keep.isEmpty) addPath(keep)
+            fillType = Path.FillType.EVEN_ODD
+        }
+        canvas.drawPath(shade, cropShade)
+        val sw = 2f * density / scale
+        framePaint.color = Color.WHITE
+        framePaint.strokeWidth = sw
+        canvas.drawPath(keep, framePaint)
+        if (cropShape != CropShape.LASSO) {
+            val r = RectF(fx(cropRect.left), fy(cropRect.top), fx(cropRect.right), fy(cropRect.bottom))
+            // Linhas de terço
+            framePaint.strokeWidth = sw / 2f
+            for (k in 1..2) {
+                canvas.drawLine(r.left + r.width() * k / 3f, r.top, r.left + r.width() * k / 3f, r.bottom, framePaint)
+                canvas.drawLine(r.left, r.top + r.height() * k / 3f, r.right, r.top + r.height() * k / 3f, framePaint)
+            }
+            // Cantoneiras grossas
+            framePaint.strokeWidth = sw * 2.2f
+            val len = min(r.width(), r.height()) * 0.18f
+            for ((x, y) in listOf(r.left to r.top, r.right to r.top, r.right to r.bottom, r.left to r.bottom)) {
+                val dx = if (x == r.left) len else -len
+                val dy = if (y == r.top) len else -len
+                canvas.drawLine(x, y, x + dx, y, framePaint)
+                canvas.drawLine(x, y, x, y + dy, framePaint)
+            }
+        }
+        framePaint.strokeWidth = 1.5f * density
+        framePaint.color = Ui.ACCENT
+        canvas.restore()
+    }
+
+    private fun drawElement(canvas: Canvas, e: Element, renderScale: Float, sync: Boolean) {
         when (e) {
             is StrokeElement -> StrokeRenderer.drawElement(canvas, e)
             is TextElement -> {
@@ -799,24 +1356,8 @@ class InfiniteCanvasView(context: Context) : View(context) {
                     baseline += e.lineHeight
                 }
             }
-            is ImageElement -> {
-                val bmp = bitmapFor(e.file)
-                if (bmp != null) canvas.drawBitmap(bmp, null, e.rect, bitmapPaint)
-                else canvas.drawRect(e.rect, placeholderPaint)
-            }
+            is ImageElement -> images.draw(canvas, e, renderScale, sync)
         }
-    }
-
-    private fun bitmapFor(name: String): Bitmap? {
-        if (bitmaps.containsKey(name)) return bitmaps[name]
-        val dir = assetDir
-        val bmp = if (dir == null) null else try {
-            BitmapFactory.decodeFile(File(dir, name).path)
-        } catch (e: OutOfMemoryError) {
-            null
-        }
-        bitmaps[name] = bmp
-        return bmp
     }
 
     private fun isDarkPaper(): Boolean {
@@ -874,7 +1415,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
     }
 
     companion object {
-        private const val MIN_SCALE = 0.05f
+        private const val MIN_SCALE = 0.03f
         private const val MAX_SCALE = 8f
         private const val MAX_UNDO = 300
         private const val GRID_SPACING = 40f

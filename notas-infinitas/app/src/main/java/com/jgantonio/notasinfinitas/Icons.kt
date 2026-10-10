@@ -1,6 +1,7 @@
 package com.jgantonio.notasinfinitas
 
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.ColorFilter
 import android.graphics.DashPathEffect
 import android.graphics.Paint
@@ -14,7 +15,8 @@ import kotlin.math.sin
 /** Ícones de linha desenhados em código (grade de 24x24), no estilo One UI. */
 enum class Icon {
     BACK, UNDO, REDO, MORE, ERASER, LASSO, TEXT, IMAGE, PLUS, FOLDER, FOLDER_PLUS, NOTE,
-    TRASH, COPY, PALETTE, CHECK, CLOSE, EDIT, MOVE, STAR, TOUCH, EXPORT, PDF, PAGE, CENTER, SHAPES, CHEVRON_RIGHT
+    TRASH, COPY, PALETTE, CHECK, CLOSE, EDIT, MOVE, STAR, TOUCH, EXPORT, PDF, PAGE, CENTER, SHAPES, CHEVRON_RIGHT,
+    ROTATE, LOCK, UNLOCK, CROP, FLIP_H, FLIP_V, ADJUST, TO_FRONT, TO_BACK, DOWNLOAD, RESET, ZOOM, SELECT_ALL
 }
 
 class IconDrawable(
@@ -192,6 +194,73 @@ class IconDrawable(
                 c.drawCircle(12f, 12f, 6.5f, stroke)
                 c.drawCircle(12f, 12f, 1.6f, fill)
                 c.drawPath(path { moveTo(12f, 2.5f); lineTo(12f, 5.5f); moveTo(12f, 18.5f); lineTo(12f, 21.5f); moveTo(2.5f, 12f); lineTo(5.5f, 12f); moveTo(18.5f, 12f); lineTo(21.5f, 12f) }, stroke)
+            }
+            Icon.ROTATE -> c.drawPath(path {
+                arcTo(RectF(5f, 5f, 19f, 19f), -60f, 300f, true)
+                moveTo(18.8f, 3.8f); lineTo(16.6f, 7.3f); lineTo(12.6f, 6.6f)
+            }, stroke)
+            Icon.LOCK, Icon.UNLOCK -> {
+                c.drawPath(path { rrect(5f, 10.5f, 19f, 20.5f, 2.5f) }, stroke)
+                c.drawPath(path {
+                    moveTo(8f, 10.5f); lineTo(8f, 7.5f)
+                    arcTo(RectF(8f, 3.5f, 16f, 11.5f), 180f, 180f)
+                    if (icon == Icon.LOCK) lineTo(16f, 10.5f)
+                }, stroke)
+                c.drawCircle(12f, 15.5f, 1.4f, fill)
+            }
+            Icon.CROP -> c.drawPath(path {
+                moveTo(6.5f, 2.5f); lineTo(6.5f, 17.5f); lineTo(21.5f, 17.5f)
+                moveTo(2.5f, 6.5f); lineTo(17.5f, 6.5f); lineTo(17.5f, 21.5f)
+            }, stroke)
+            Icon.FLIP_H, Icon.FLIP_V -> {
+                c.save()
+                if (icon == Icon.FLIP_V) c.rotate(90f, 12f, 12f)
+                c.drawPath(path {
+                    moveTo(12f, 3f); lineTo(12f, 21f)
+                    moveTo(9f, 6f); lineTo(3.5f, 18f); lineTo(9f, 18f); close()
+                }, stroke)
+                val dashed = Paint(stroke).apply { pathEffect = DashPathEffect(floatArrayOf(1.8f, 1.8f), 0f) }
+                c.drawPath(path { moveTo(15f, 6f); lineTo(20.5f, 18f); lineTo(15f, 18f); close() }, dashed)
+                c.restore()
+            }
+            Icon.ADJUST -> {
+                c.drawPath(path {
+                    moveTo(4f, 7f); lineTo(11f, 7f); moveTo(15f, 7f); lineTo(20f, 7f)
+                    moveTo(4f, 17f); lineTo(8f, 17f); moveTo(12f, 17f); lineTo(20f, 17f)
+                }, stroke)
+                c.drawCircle(13f, 7f, 2.2f, stroke)
+                c.drawCircle(10f, 17f, 2.2f, stroke)
+            }
+            Icon.TO_FRONT, Icon.TO_BACK -> {
+                val front = icon == Icon.TO_FRONT
+                val back = Path().apply { rrect(9f, 9f, 20f, 20f, 2f) }
+                val top = Path().apply { rrect(4f, 4f, 15f, 15f, 2f) }
+                if (front) {
+                    c.drawPath(back, stroke)
+                    val bg = Paint(fill).apply { color = Color.WHITE }
+                    c.drawPath(top, bg)
+                    c.drawPath(top, fill)
+                } else {
+                    c.drawPath(top, stroke)
+                    c.drawPath(back, fill)
+                }
+            }
+            Icon.DOWNLOAD -> c.drawPath(path {
+                moveTo(12f, 3.5f); lineTo(12f, 15f); moveTo(7.5f, 10.5f); lineTo(12f, 15f); lineTo(16.5f, 10.5f)
+                moveTo(4.5f, 15f); lineTo(4.5f, 18f); quadTo(4.5f, 20.5f, 7f, 20.5f); lineTo(17f, 20.5f); quadTo(19.5f, 20.5f, 19.5f, 18f); lineTo(19.5f, 15f)
+            }, stroke)
+            Icon.RESET -> c.drawPath(path {
+                arcTo(RectF(4f, 4f, 20f, 20f), 200f, -290f, true)
+                moveTo(3.5f, 4.5f); lineTo(4.4f, 9.4f); lineTo(9.2f, 8.4f)
+            }, stroke)
+            Icon.ZOOM -> {
+                c.drawCircle(10.5f, 10.5f, 6.5f, stroke)
+                c.drawPath(path { moveTo(15.5f, 15.5f); lineTo(20.5f, 20.5f); moveTo(10.5f, 7.5f); lineTo(10.5f, 13.5f); moveTo(7.5f, 10.5f); lineTo(13.5f, 10.5f) }, stroke)
+            }
+            Icon.SELECT_ALL -> {
+                val dashed = Paint(stroke).apply { pathEffect = DashPathEffect(floatArrayOf(2.4f, 2.2f), 0f) }
+                c.drawPath(path { rrect(3.5f, 3.5f, 20.5f, 20.5f, 2.5f) }, dashed)
+                c.drawPath(path { rrect(8f, 8f, 16f, 16f, 1.5f) }, fill)
             }
             Icon.SHAPES -> {
                 c.drawCircle(8.5f, 8.5f, 4.5f, stroke)

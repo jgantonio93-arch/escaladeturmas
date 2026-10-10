@@ -75,6 +75,14 @@ class FoldersActivity : Activity() {
         val fabs = horizontal()
         if (folderId != null) {
             fabs.addView(ImageView(this).apply {
+                setImageDrawable(icon(Icon.PDF, Ui.INK))
+                scaleType = ImageView.ScaleType.CENTER
+                background = ripple(circle(Ui.SURFACE, 0, 0f), circle(Color.WHITE, 0, 0f))
+                elevation = dp(6f)
+                contentDescription = "Importar PDF"
+                setOnClickListener { pickPdf() }
+            }, LinearLayout.LayoutParams(dpi(52f), dpi(52f)).apply { marginEnd = dpi(12f) })
+            fabs.addView(ImageView(this).apply {
                 setImageDrawable(icon(Icon.FOLDER_PLUS, Ui.INK))
                 scaleType = ImageView.ScaleType.CENTER
                 background = ripple(circle(Ui.SURFACE, 0, 0f), circle(Color.WHITE, 0, 0f))
@@ -301,6 +309,31 @@ class FoldersActivity : Activity() {
         openNote(Library.createNote(folder, title))
     }
 
+    private fun pickPdf() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            type = "application/pdf"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        @Suppress("DEPRECATION")
+        startActivityForResult(intent, REQ_PDF)
+    }
+
+    @Deprecated("Activity sem AndroidX")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        val fid = folderId ?: return
+        if (requestCode != REQ_PDF || resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        // Nota nova com o nome do arquivo; o editor importa as páginas ao abrir.
+        val title = (PdfImporter.displayName(this, uri) ?: "PDF").removeSuffix(".pdf").removeSuffix(".PDF")
+        val n = Library.createNote(fid, title)
+        startActivity(Intent(this, EditorActivity::class.java)
+            .putExtra(EditorActivity.EXTRA_NOTE, n.id)
+            .putExtra(EditorActivity.EXTRA_PDF, uri.toString())
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+    }
+
     private fun openNote(n: NoteInfo) {
         startActivity(Intent(this, EditorActivity::class.java).putExtra(EditorActivity.EXTRA_NOTE, n.id))
     }
@@ -393,5 +426,6 @@ class FoldersActivity : Activity() {
 
     companion object {
         const val EXTRA_FOLDER = "folder"
+        private const val REQ_PDF = 51
     }
 }

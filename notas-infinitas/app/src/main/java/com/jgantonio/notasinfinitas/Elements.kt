@@ -16,12 +16,56 @@ import kotlin.math.max
 sealed class Element {
     abstract val bounds: RectF
 
-    /** Cópia com escala [s] em torno de (ox, oy) seguida de deslocamento (dx, dy). */
-    abstract fun transformed(s: Float, ox: Float, oy: Float, dx: Float, dy: Float): Element
+    /** Cópia com a transformação aplicada (escala, rotação e deslocamento). */
+    abstract fun transformed(t: Transform): Element
 
     abstract fun insideLasso(lasso: Lasso): Boolean
 
-    protected fun t(v: Float, s: Float, o: Float, d: Float) = (v - o) * s + o + d
+    /** Elementos travados não são selecionados pelo laço, movidos ou apagados. */
+    open val locked: Boolean get() = false
+}
+
+/**
+ * p' = R(rotation) * ((p - origem) * escala) + origem + (dx, dy).
+ * [rotation] em graus, sentido horário (como no Canvas).
+ */
+class Transform(
+    val scale: Float = 1f,
+    val rotation: Float = 0f,
+    val ox: Float = 0f,
+    val oy: Float = 0f,
+    val dx: Float = 0f,
+    val dy: Float = 0f,
+) {
+    private val rad = Math.toRadians(rotation.toDouble())
+    private val cos = kotlin.math.cos(rad).toFloat()
+    private val sin = kotlin.math.sin(rad).toFloat()
+
+    val isIdentity get() = scale == 1f && rotation == 0f && dx == 0f && dy == 0f
+
+    fun x(px: Float, py: Float): Float {
+        val ux = (px - ox) * scale
+        val uy = (py - oy) * scale
+        return ux * cos - uy * sin + ox + dx
+    }
+
+    fun y(px: Float, py: Float): Float {
+        val ux = (px - ox) * scale
+        val uy = (py - oy) * scale
+        return ux * sin + uy * cos + oy + dy
+    }
+
+    /** Aplica a mesma transformação a um Canvas (para a prévia durante o gesto). */
+    fun applyTo(c: android.graphics.Canvas) {
+        c.translate(ox + dx, oy + dy)
+        c.rotate(rotation)
+        c.scale(scale, scale)
+        c.translate(-ox, -oy)
+    }
+
+    companion object {
+        fun translate(dx: Float, dy: Float) = Transform(dx = dx, dy = dy)
+    }
 }
 
 class StrokeElement(
@@ -51,11 +95,11 @@ class StrokeElement(
 
     fun withColor(c: Int) = StrokeElement(type, c, alpha, xs, ys, ws)
 
-    override fun transformed(s: Float, ox: Float, oy: Float, dx: Float, dy: Float) = StrokeElement(
+    override fun transformed(t: Transform) = StrokeElement(
         type, color, alpha,
-        FloatArray(n) { t(xs[it], s, ox, dx) },
-        FloatArray(n) { t(ys[it], s, oy, dy) },
-        FloatArray(n) { ws[it] * s },
+        FloatArray(n) { t.x(xs[it], ys[it]) },
+        FloatArray(n) { t.y(xs[it], ys[it]) },
+        FloatArray(n) { ws[it] * t.scale },
     )
 
     fun hits(px: Float, py: Float, radius: Float): Boolean {
@@ -148,8 +192,13 @@ class TextElement(
 
     fun withColor(c: Int) = TextElement(text, x, y, size, c)
 
-    override fun transformed(s: Float, ox: Float, oy: Float, dx: Float, dy: Float) =
-        TextElement(text, t(x, s, ox, dx), t(y, s, oy, dy), size * s, color)
+    override fun transformed(t: Transform): TextElement {
+        val cx = bounds.centerX()
+        val cy = bounds.centerY()
+        val ncx = t.x(cx, cy)
+        val ncy = t.y(cx, cy)
+        return TextElement(text, ncx - bounds.width() * t.scale / 2f, ncy - bounds.height() * t.scale / 2f, size * t.scale, color)
+    }
 
     override fun insideLasso(lasso: Lasso) = lasso.contains(bounds.centerX(), bounds.centerY())
 
@@ -158,15 +207,143 @@ class TextElement(
     }
 }
 
-class ImageElement(val file: String, val rect: RectF) : Element() {
-    override val bounds: RectF get() = rect
+enum class ImageFilter(val label: String) {
+    NONE("Original"), MONO("P&B"), SEPIA("Sépia"), VIVID("Vívido"),
+    WARM("Quente"), COOL("Frio"), FADE("Desbotado"), NOIR("Noir"), INVERT("Negativo"),
+}
 
-    override fun transformed(s: Float, ox: Float, oy: Float, dx: Float, dy: Float) = ImageElement(
-        file,
-        RectF(t(rect.left, s, ox, dx), t(rect.top, s, oy, dy), t(rect.right, s, ox, dx), t(rect.bottom, s, oy, dy)),
-    )
+enum class ImageMask(val label: String) { RECT("Reto"), ROUNDED("Arredondado"), ELLIPSE("Círculo"), FREE("Livre") }
 
-    override fun insideLasso(lasso: Lasso) = lasso.contains(rect.centerX(), rect.centerY())
+/**
+ * Imagem na tela. [rect] é o quadro visível (já recortado), sem rotação, em coordenadas
+ * do mundo; a imagem gira em torno do centro dele. [crop] é a parte da imagem original
+ * que aparece, em frações (0..1). [freeMask] é um polígono (x, y alternados, em frações
+ * da imagem original) para o recorte à mão livre.
+ */
+class ImageElement(
+    val file: String,
+    val rect: RectF,
+    val rotation: Float = 0f,
+    val flipH: Boolean = false,
+    val flipV: Boolean = false,
+    val crop: RectF = RectF(0f, 0f, 1f, 1f),
+    val mask: ImageMask = ImageMask.RECT,
+    val freeMask: FloatArray? = null,
+    val opacity: Int = 255,
+    val filter: ImageFilter = ImageFilter.NONE,
+    val brightness: Float = 0f,
+    val contrast: Float = 0f,
+    val saturation: Float = 0f,
+    val borderWidth: Float = 0f,
+    val borderColor: Int = android.graphics.Color.WHITE,
+    val shadow: Boolean = false,
+    override val locked: Boolean = false,
+    /** Página de PDF (informativo: aparece como "Página N" na barra). */
+    val pdfPage: Int = 0,
+) : Element() {
+
+    fun with(
+        file: String = this.file,
+        rect: RectF = this.rect,
+        rotation: Float = this.rotation,
+        flipH: Boolean = this.flipH,
+        flipV: Boolean = this.flipV,
+        crop: RectF = this.crop,
+        mask: ImageMask = this.mask,
+        freeMask: FloatArray? = this.freeMask,
+        opacity: Int = this.opacity,
+        filter: ImageFilter = this.filter,
+        brightness: Float = this.brightness,
+        contrast: Float = this.contrast,
+        saturation: Float = this.saturation,
+        borderWidth: Float = this.borderWidth,
+        borderColor: Int = this.borderColor,
+        shadow: Boolean = this.shadow,
+        locked: Boolean = this.locked,
+        pdfPage: Int = this.pdfPage,
+    ) = ImageElement(file, RectF(rect), normalizeAngle(rotation), flipH, flipV, RectF(crop), mask, freeMask, opacity,
+        filter, brightness, contrast, saturation, borderWidth, borderColor, shadow, locked, pdfPage)
+
+    val centerX get() = rect.centerX()
+    val centerY get() = rect.centerY()
+
+    /** Os 4 cantos do quadro já girado (x0,y0,...,x3,y3): sup-esq, sup-dir, inf-dir, inf-esq. */
+    fun corners(): FloatArray {
+        val t = Transform(rotation = rotation, ox = centerX, oy = centerY)
+        val xs = floatArrayOf(rect.left, rect.right, rect.right, rect.left)
+        val ys = floatArrayOf(rect.top, rect.top, rect.bottom, rect.bottom)
+        return FloatArray(8) { i -> if (i % 2 == 0) t.x(xs[i / 2], ys[i / 2]) else t.y(xs[i / 2], ys[i / 2]) }
+    }
+
+    override val bounds: RectF = run {
+        val c = corners()
+        val pad = borderWidth + 1f
+        RectF(
+            minOf(c[0], c[2], c[4], c[6]) - pad, minOf(c[1], c[3], c[5], c[7]) - pad,
+            maxOf(c[0], c[2], c[4], c[6]) + pad, maxOf(c[1], c[3], c[5], c[7]) + pad,
+        )
+    }
+
+    /** Converte um ponto do mundo para coordenadas locais (centro = 0,0, sem rotação). */
+    fun toLocal(px: Float, py: Float): Pair<Float, Float> {
+        val t = Transform(rotation = -rotation, ox = centerX, oy = centerY)
+        return (t.x(px, py) - centerX) to (t.y(px, py) - centerY)
+    }
+
+    fun contains(px: Float, py: Float): Boolean {
+        val (lx, ly) = toLocal(px, py)
+        return kotlin.math.abs(lx) <= rect.width() / 2f && kotlin.math.abs(ly) <= rect.height() / 2f
+    }
+
+    /** Quadro da imagem original inteira em coordenadas locais (para o modo de recorte). */
+    fun fullLocalFrame(): RectF {
+        val fw = rect.width() / crop.width()
+        val fh = rect.height() / crop.height()
+        val left = -rect.width() / 2f - crop.left * fw
+        val top = -rect.height() / 2f - crop.top * fh
+        return RectF(left, top, left + fw, top + fh)
+    }
+
+    /** Nova imagem mostrando [newCrop], mantendo a parte da imagem no mesmo lugar do mundo. */
+    fun withCrop(newCrop: RectF, newMask: ImageMask = mask, newFree: FloatArray? = freeMask): ImageElement {
+        val full = fullLocalFrame()
+        val l = full.left + newCrop.left * full.width()
+        val t = full.top + newCrop.top * full.height()
+        val r = full.left + newCrop.right * full.width()
+        val b = full.top + newCrop.bottom * full.height()
+        val lcx = (l + r) / 2f
+        val lcy = (t + b) / 2f
+        // Local -> mundo: gira o centro local e soma o centro atual
+        val rot = Transform(rotation = rotation)
+        val wcx = centerX + rot.x(lcx, lcy)
+        val wcy = centerY + rot.y(lcx, lcy)
+        val w = r - l
+        val h = b - t
+        return with(rect = RectF(wcx - w / 2f, wcy - h / 2f, wcx + w / 2f, wcy + h / 2f), crop = newCrop, mask = newMask, freeMask = newFree)
+    }
+
+    override fun transformed(t: Transform): ImageElement {
+        val ncx = t.x(centerX, centerY)
+        val ncy = t.y(centerX, centerY)
+        val w = rect.width() * t.scale / 2f
+        val h = rect.height() * t.scale / 2f
+        return with(
+            rect = RectF(ncx - w, ncy - h, ncx + w, ncy + h),
+            rotation = rotation + t.rotation,
+            borderWidth = borderWidth * t.scale,
+        )
+    }
+
+    override fun insideLasso(lasso: Lasso) = !locked && lasso.contains(centerX, centerY)
+
+    companion object {
+        fun normalizeAngle(a: Float): Float {
+            var r = a % 360f
+            if (r > 180f) r -= 360f
+            if (r <= -180f) r += 360f
+            return r
+        }
+    }
 }
 
 /** Polígono do laço de seleção, em coordenadas do mundo. */

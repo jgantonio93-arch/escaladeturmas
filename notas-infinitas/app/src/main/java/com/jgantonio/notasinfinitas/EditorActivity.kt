@@ -7,6 +7,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
@@ -26,6 +27,11 @@ import android.widget.TextView
 import android.widget.Toast
 import com.jgantonio.notasinfinitas.Ui.SheetItem
 import com.jgantonio.notasinfinitas.Ui.actionSheet
+import com.jgantonio.notasinfinitas.Ui.buttonRow
+import com.jgantonio.notasinfinitas.Ui.primaryButton
+import com.jgantonio.notasinfinitas.Ui.secondaryButton
+import com.jgantonio.notasinfinitas.Ui.segmented
+import com.jgantonio.notasinfinitas.Ui.sheet
 import com.jgantonio.notasinfinitas.Ui.circle
 import com.jgantonio.notasinfinitas.Ui.dp
 import com.jgantonio.notasinfinitas.Ui.dpi
@@ -53,6 +59,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
     private lateinit var note: NoteInfo
     private lateinit var prefs: PenPrefs
     private lateinit var canvasView: InfiniteCanvasView
+    internal val canvasForTests get() = canvasView
 
     private lateinit var titleView: TextView
     private lateinit var subtitleView: TextView
@@ -109,7 +116,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
             setPadding(dpi(12f), 0, dpi(12f), 0)
             background = ripple(pill(Color.parseColor("#F2FFFFFF")), pill(Color.WHITE, 0))
             elevation = dp(2f)
-            setOnClickListener { canvasView.recenter() }
+            setOnClickListener { showZoomMenu() }
         }
         stage.addView(zoomLabel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply {
             setMargins(dpi(14f), 0, 0, dpi(14f))
@@ -134,6 +141,11 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
 
         NoteStorage.load(Library.noteFile(note.id))?.let { canvasView.load(it) }
         refresh()
+        intent.getStringExtra(EXTRA_PDF)?.let { u ->
+            intent.removeExtra(EXTRA_PDF)
+            // Espera a tela ter tamanho para enquadrar as páginas.
+            canvasView.post { importPdf(Uri.parse(u), PdfImporter.Layout.VERTICAL) }
+        }
     }
 
     override fun onPause() {
@@ -217,7 +229,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         }.also { bar.addView(it) }
         toolButtons[InfiniteCanvasView.Tool.SELECT] = toolButton(icon(Icon.LASSO)) { setTool(InfiniteCanvasView.Tool.SELECT) }.also { bar.addView(it) }
         toolButtons[InfiniteCanvasView.Tool.TEXT] = toolButton(icon(Icon.TEXT)) { setTool(InfiniteCanvasView.Tool.TEXT) }.also { bar.addView(it) }
-        bar.addView(toolButton(icon(Icon.IMAGE)) { closeTray(); pickImage() })
+        bar.addView(toolButton(icon(Icon.IMAGE)) { closeTray(); showInsertMenu() })
         bar.addView(dockDivider())
         colorDot = ColorDot(this, canvasView.pen.color, false) {
             if (canvasView.tool != InfiniteCanvasView.Tool.PEN) setTool(InfiniteCanvasView.Tool.PEN)
@@ -317,22 +329,151 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
 
     // ---- Barra de seleção ----------------------------------------------------------------
 
+    private lateinit var selectionRow: LinearLayout
+
     private fun buildSelectionBar(): View {
-        val bar = horizontal().apply {
-            setPadding(dpi(14f), dpi(4f), dpi(6f), dpi(4f))
+        selectionRow = horizontal().apply { setPadding(dpi(14f), dpi(4f), dpi(6f), dpi(4f)) }
+        selectionLabel = label("", 13f, Ui.ACCENT, bold = true)
+        val scroll = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
             background = pill(Ui.SURFACE, Color.parseColor("#EEF0F3"))
             elevation = dp(10f)
             isClickable = true
+            addView(selectionRow)
         }
-        selectionLabel = label("", 13f, Ui.ACCENT, bold = true).apply { setPadding(0, 0, dpi(6f), 0) }
-        bar.addView(selectionLabel)
-        bar.addView(pillButton(Icon.TRASH, "Excluir") { canvasView.deleteSelection() })
-        bar.addView(pillButton(Icon.COPY, "Duplicar") { canvasView.duplicateSelection() })
-        bar.addView(pillButton(Icon.PALETTE, "Cor") {
-            Panels.showColorChoice(this, prefs, canvasView.pen.color) { canvasView.recolorSelection(it) }
+        return scroll
+    }
+
+    /** Monta os botões conforme o que está selecionado (imagem, item travado, traços...). */
+    private fun fillSelectionBar() {
+        val row = selectionRow
+        row.removeAllViews()
+        (selectionLabel.parent as? ViewGroup)?.removeView(selectionLabel)
+        if (canvasView.inCropMode) {
+            fillCropBar(row)
+            return
+        }
+        val items = canvasView.selectedItems
+        val img = canvasView.selectedImage
+        selectionLabel.text = when {
+            img != null && img.pdfPage > 0 -> "Página ${img.pdfPage}"
+            img != null -> "Imagem"
+            items.size == 1 -> "1 item"
+            else -> "${items.size} itens"
+        }
+        row.addView(selectionLabel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            marginEnd = dpi(6f)
         })
-        bar.addView(iconButton(Icon.CHECK, Ui.ACCENT, 40f) { canvasView.clearSelection() })
-        return bar
+        if (canvasView.selectionLocked) {
+            row.addView(pillButton(Icon.UNLOCK, "Destravar") { canvasView.setLocked(false) })
+            row.addView(pillButton(Icon.TRASH, "Excluir") { canvasView.deleteSelection() })
+        } else if (img != null) {
+            row.addView(pillButton(Icon.CROP, "Recortar") { canvasView.startCrop() })
+            row.addView(pillButton(Icon.ADJUST, "Ajustes") { ImageTools.showAdjustments(this, canvasView) })
+            row.addView(pillButton(Icon.ROTATE, "Girar 90°") { canvasView.rotateSelection(90f) })
+            row.addView(pillButton(Icon.FLIP_H, "Espelhar") { canvasView.editImages { it.with(flipH = !it.flipH) } })
+            row.addView(pillButton(Icon.FLIP_V, "Virar") { canvasView.editImages { it.with(flipV = !it.flipV) } })
+            row.addView(pillButton(Icon.TO_FRONT, "Frente") { canvasView.reorderSelection(true) })
+            row.addView(pillButton(Icon.TO_BACK, "Trás") { canvasView.reorderSelection(false) })
+            row.addView(pillButton(Icon.LOCK, "Travar") { canvasView.setLocked(true) })
+            row.addView(pillButton(Icon.COPY, "Duplicar") { canvasView.duplicateSelection() })
+            row.addView(pillButton(Icon.IMAGE, "Substituir") { pickImage(REQ_REPLACE) })
+            row.addView(pillButton(Icon.DOWNLOAD, "Salvar") { saveSelectedImage() })
+            row.addView(pillButton(Icon.RESET, "Original") {
+                canvasView.editImages {
+                    ImageElement(it.file, RectF(it.rect), locked = false).let { base ->
+                        // Volta ao arquivo original inteiro, mantendo o centro e a largura atual.
+                        val full = it.fullLocalFrame()
+                        val w = full.width()
+                        val h = full.height()
+                        base.with(rect = RectF(it.centerX - w / 2, it.centerY - h / 2, it.centerX + w / 2, it.centerY + h / 2))
+                    }
+                }
+            })
+            row.addView(pillButton(Icon.TRASH, "Excluir") { canvasView.deleteSelection() })
+        } else {
+            row.addView(pillButton(Icon.TRASH, "Excluir") { canvasView.deleteSelection() })
+            row.addView(pillButton(Icon.COPY, "Duplicar") { canvasView.duplicateSelection() })
+            row.addView(pillButton(Icon.PALETTE, "Cor") {
+                Panels.showColorChoice(this, prefs, canvasView.pen.color) { canvasView.recolorSelection(it) }
+            })
+            row.addView(pillButton(Icon.ROTATE, "Girar 90°") { canvasView.rotateSelection(90f) })
+            row.addView(pillButton(Icon.TO_FRONT, "Frente") { canvasView.reorderSelection(true) })
+            row.addView(pillButton(Icon.TO_BACK, "Trás") { canvasView.reorderSelection(false) })
+            if (items.any { it is ImageElement }) row.addView(pillButton(Icon.LOCK, "Travar imagens") { canvasView.setLocked(true) })
+        }
+        row.addView(iconButton(Icon.CHECK, Ui.ACCENT, 40f) { canvasView.clearSelection() })
+    }
+
+    private fun fillCropBar(row: LinearLayout) {
+        val shapes = listOf(
+            InfiniteCanvasView.CropShape.RECT to "Livre",
+            InfiniteCanvasView.CropShape.SQUARE to "1:1",
+            InfiniteCanvasView.CropShape.WIDE to "16:9",
+            InfiniteCanvasView.CropShape.ELLIPSE to "Círculo",
+            InfiniteCanvasView.CropShape.LASSO to "Mão livre",
+        )
+        for ((shape, name) in shapes) {
+            val sel = canvasView.cropShape == shape
+            row.addView(TextView(this).apply {
+                text = name
+                textSize = 13f
+                typeface = Ui.MEDIUM
+                gravity = Gravity.CENTER
+                minHeight = dpi(36f)
+                setPadding(dpi(12f), 0, dpi(12f), 0)
+                setTextColor(if (sel) Ui.ACCENT else Ui.INK)
+                background = ripple(pill(if (sel) Ui.ACCENT_SOFT else Color.TRANSPARENT, 0), pill(Color.WHITE, 0))
+                setOnClickListener {
+                    canvasView.setCropShape(shape)
+                    fillSelectionBar()
+                    if (shape == InfiniteCanvasView.CropShape.LASSO) toast("Contorne com a caneta a parte que quer manter.")
+                }
+            })
+        }
+        row.addView(pillButton(Icon.RESET, "Tudo") { canvasView.resetCrop(); fillSelectionBar() })
+        row.addView(iconButton(Icon.CLOSE, Ui.MUTED, 40f) { canvasView.cancelCrop() })
+        row.addView(TextView(this).apply {
+            text = "Aplicar"
+            textSize = 14f
+            typeface = Ui.MEDIUM
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            minHeight = dpi(38f)
+            setPadding(dpi(16f), 0, dpi(16f), 0)
+            background = ripple(pill(Ui.ACCENT, 0), pill(Color.WHITE, 0), Color.parseColor("#33FFFFFF"))
+            setOnClickListener { canvasView.applyCrop() }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = dpi(4f)
+            marginEnd = dpi(4f)
+        })
+    }
+
+    private fun saveSelectedImage() {
+        val img = canvasView.selectedImage ?: return
+        Library.io.execute {
+            val bmp = try { canvasView.images.export(img) } catch (e: Exception) { null }
+            val ok = bmp != null && try {
+                writeToMediaStore(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, fileName("png"), "image/png",
+                    Environment.DIRECTORY_PICTURES + "/NotasInfinitas") { out -> bmp.compress(Bitmap.CompressFormat.PNG, 100, out) }
+            } catch (e: Exception) {
+                false
+            }
+            bmp?.recycle()
+            main.post { toast(if (ok) "Imagem salva em Imagens/NotasInfinitas" else "Não foi possível salvar a imagem.") }
+        }
+    }
+
+    // ---- Zoom -------------------------------------------------------------------------
+
+    private fun showZoomMenu() {
+        actionSheet("Zoom: ${canvasView.zoomPercent}%", listOf(
+            SheetItem(Icon.CENTER, "Ajustar à tela (ver tudo)") { canvasView.recenter() },
+            SheetItem(Icon.ZOOM, "100% (tamanho real)") { canvasView.zoomTo(1f) },
+            SheetItem(Icon.ZOOM, "50%") { canvasView.zoomTo(0.5f) },
+            SheetItem(Icon.ZOOM, "200%") { canvasView.zoomTo(2f) },
+            SheetItem(Icon.ZOOM, "400%") { canvasView.zoomTo(4f) },
+        ))
     }
 
     // ---- Menu ⋮ --------------------------------------------------------------------
@@ -350,6 +491,8 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
                     canvasView.paperColor = c
                 }
             },
+            SheetItem(Icon.PDF, "Importar PDF") { pickPdf() },
+            SheetItem(Icon.SELECT_ALL, "Selecionar tudo") { canvasView.selectAll(); refresh() },
             SheetItem(Icon.EXPORT, "Exportar como imagem") { exportPng() },
             SheetItem(Icon.PDF, "Exportar como PDF") { exportPdf() },
             SheetItem(Icon.CENTER, "Centralizar conteúdo") { canvasView.recenter() },
@@ -386,9 +529,13 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
     }
 
     override fun onSelectionChanged(count: Int) {
-        selectionBar.visibility = if (count > 0) View.VISIBLE else View.GONE
-        selectionLabel.text = if (count == 1) "1 item" else "$count itens"
+        selectionBar.visibility = if (count > 0 || canvasView.inCropMode) View.VISIBLE else View.GONE
+        if (selectionBar.visibility == View.VISIBLE) fillSelectionBar()
         refresh()
+    }
+
+    override fun onCropModeChanged(active: Boolean) {
+        onSelectionChanged(canvasView.selectedItems.size)
     }
 
     override fun onTextRequest(x: Float, y: Float, existing: TextElement?) {
@@ -401,31 +548,122 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
 
     // ---- Imagem -----------------------------------------------------------------
 
-    private fun pickImage() {
+    private fun showInsertMenu() {
+        actionSheet("Inserir", listOf(
+            SheetItem(Icon.IMAGE, "Imagem da galeria") { pickImage(REQ_IMAGE) },
+            SheetItem(Icon.PDF, "PDF (todas as páginas)") { pickPdf() },
+        ))
+    }
+
+    private fun pickImage(request: Int) {
         val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "image/*"
             addCategory(Intent.CATEGORY_OPENABLE)
         }
         @Suppress("DEPRECATION")
-        startActivityForResult(Intent.createChooser(intent, "Escolha uma imagem"), REQ_IMAGE)
+        startActivityForResult(Intent.createChooser(intent, "Escolha uma imagem"), request)
+    }
+
+    private fun pickPdf() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            type = "application/pdf"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        @Suppress("DEPRECATION")
+        startActivityForResult(intent, REQ_PDF)
     }
 
     @Deprecated("Activity sem AndroidX")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQ_IMAGE || resultCode != RESULT_OK) return
+        if (resultCode != RESULT_OK) return
         val uri = data?.data ?: return
-        Library.io.execute {
-            val result = try { importImage(uri) } catch (e: Exception) { null }
-            main.post {
-                if (result == null) toast("Não foi possível abrir a imagem.")
-                else {
-                    canvasView.addImage(result.first, result.second, result.third)
-                    refresh()
+        when (requestCode) {
+            REQ_PDF -> askPdfLayout(uri)
+            REQ_IMAGE, REQ_REPLACE -> Library.io.execute {
+                val result = try { importImage(uri) } catch (e: Exception) { null }
+                main.post {
+                    if (result == null) toast("Não foi possível abrir a imagem.")
+                    else if (requestCode == REQ_REPLACE) canvasView.replaceSelectedImage(result.first, result.second, result.third)
+                    else {
+                        canvasView.addImage(result.first, result.second, result.third)
+                        refresh()
+                    }
                 }
             }
         }
+    }
+
+    // ---- PDF ----------------------------------------------------------------------------
+
+    /** Pergunta como organizar as páginas e importa. */
+    private fun askPdfLayout(uri: Uri) {
+        val name = PdfImporter.displayName(this, uri) ?: "PDF"
+        var layout = PdfImporter.Layout.VERTICAL
+        Ui.run {
+            sheet("Importar PDF") { box, dialog ->
+                box.addView(label(name, 14f).apply { setPadding(0, 0, 0, dpi(12f)) })
+                box.addView(label("Como organizar as páginas?", 15f, Ui.INK))
+                box.addView(segmented(PdfImporter.Layout.entries.map { it.label }, 0) { i ->
+                    layout = PdfImporter.Layout.entries[i]
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dpi(10f)
+                })
+                box.addView(label("As páginas entram travadas, como fundo, para você escrever por cima. " +
+                    "Toque numa página com a seleção para destravar.", 13f).apply { setPadding(0, dpi(12f), 0, 0) })
+                box.addView(buttonRow(
+                    secondaryButton("Cancelar") { dialog.dismiss() },
+                    primaryButton("Importar") { dialog.dismiss(); importPdf(uri, layout) },
+                ))
+            }
+        }
+    }
+
+    private fun importPdf(uri: Uri, layout: PdfImporter.Layout) {
+        var cancelled = false
+        lateinit var status: TextView
+        lateinit var bar: android.widget.ProgressBar
+        val dialog = Ui.run {
+            sheet("Importando PDF") { box, d ->
+                status = label("Preparando…", 15f, Ui.INK)
+                box.addView(status)
+                bar = android.widget.ProgressBar(this@EditorActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    isIndeterminate = false
+                    max = 100
+                    progressTintList = android.content.res.ColorStateList.valueOf(Ui.ACCENT)
+                }
+                box.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpi(24f)).apply { topMargin = dpi(8f) })
+                box.addView(buttonRow(secondaryButton("Cancelar") { cancelled = true; d.dismiss() }))
+            }
+        }
+        dialog.setCancelable(false)
+        val (x0, y0) = canvasView.freeSpotBelow()
+        val dir = Library.assetsDir(note.id)
+        Thread {
+            val result = try {
+                PdfImporter.render(this, uri, dir, progress = { i, n ->
+                    main.post {
+                        status.text = "Página $i de $n"
+                        bar.progress = i * 100 / n
+                    }
+                }, cancelled = { cancelled })
+            } catch (e: SecurityException) {
+                main.post { toast("Esse PDF tem senha e não pode ser aberto.") }
+                null
+            } catch (e: Exception) {
+                main.post { toast("Não foi possível abrir o PDF.") }
+                null
+            }
+            main.post {
+                if (dialog.isShowing) dialog.dismiss()
+                if (!result.isNullOrEmpty()) {
+                    canvasView.addPages(PdfImporter.layout(result, layout, x0, y0))
+                    toast(if (result.size == 1) "1 página importada" else "${result.size} páginas importadas")
+                    refresh()
+                }
+            }
+        }.start()
     }
 
     /** Copia a imagem para a pasta da nota (reduzida a no máximo 2048 px). */
@@ -568,6 +806,9 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
 
     companion object {
         const val EXTRA_NOTE = "note"
+        const val EXTRA_PDF = "pdf"
         private const val REQ_IMAGE = 41
+        private const val REQ_REPLACE = 42
+        private const val REQ_PDF = 43
     }
 }
