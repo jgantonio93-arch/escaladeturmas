@@ -88,6 +88,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Ui.init(this)
         Library.init(this)
         val n = Library.note(intent.getStringExtra(EXTRA_NOTE))
         if (n == null) {
@@ -143,7 +144,9 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
             minHeight = dpi(32f)
             setPadding(dpi(12f), 0, dpi(12f), 0)
             background = ripple(pill(Color.parseColor("#F2FFFFFF")), pill(Color.WHITE, 0))
-            elevation = dp(2f)
+            fontFeatureSettings = "tnum"
+            Ui.run { softShadow(2f) }
+            contentDescription = "Zoom"
             setOnClickListener { showZoomMenu() }
         }
         stage.addView(zoomLabel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply {
@@ -252,7 +255,11 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
             background = ripple(null, Ui.run { rounded(Color.WHITE, 12f) })
             setOnClickListener { rename() }
         }
-        titleView = label("", 17f, Ui.INK, bold = true).apply { isSingleLine = true }
+        titleView = label("", 19f, Ui.INK, bold = true).apply {
+            typeface = Ui.DISPLAY
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
         subtitleView = label("", 12f).apply { isSingleLine = true }
         titles.addView(titleView)
         titles.addView(subtitleView)
@@ -271,9 +278,11 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
 
     // ---- Dock de ferramentas ------------------------------------------------------------
 
-    private fun toolButton(d: Drawable, onClick: () -> Unit) = ImageView(this).apply {
+    private fun toolButton(d: Drawable, desc: String = "", onClick: () -> Unit) = ImageView(this).apply {
         setImageDrawable(d)
         scaleType = ImageView.ScaleType.CENTER
+        contentDescription = desc.ifEmpty { "Caneta" }
+        Ui.run { pressable(0.9f) }
         setOnClickListener { onClick() }
         layoutParams = LinearLayout.LayoutParams(dpi(46f), dpi(46f)).apply { setMargins(dpi(1f), 0, dpi(1f), 0) }
     }
@@ -287,7 +296,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         val bar = horizontal().apply {
             setPadding(dpi(6f), dpi(5f), dpi(6f), dpi(5f))
             background = pill(Ui.SURFACE, Color.parseColor("#EEF0F3"))
-            elevation = dp(8f)
+            Ui.run { softShadow(10f) }
             isClickable = true
         }
         penToolButton = toolButton(PenGlyphDrawable(canvasView.pen.type, canvasView.pen.color, dpi(30f), dp(1f))) {
@@ -295,12 +304,12 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         }
         toolButtons[InfiniteCanvasView.Tool.PEN] = penToolButton
         bar.addView(penToolButton)
-        toolButtons[InfiniteCanvasView.Tool.ERASER] = toolButton(icon(Icon.ERASER)) {
+        toolButtons[InfiniteCanvasView.Tool.ERASER] = toolButton(icon(Icon.ERASER), "Borracha") {
             if (canvasView.tool == InfiniteCanvasView.Tool.ERASER) toggleTray("eraser") else setTool(InfiniteCanvasView.Tool.ERASER)
         }.also { bar.addView(it) }
-        toolButtons[InfiniteCanvasView.Tool.SELECT] = toolButton(icon(Icon.LASSO)) { setTool(InfiniteCanvasView.Tool.SELECT) }.also { bar.addView(it) }
-        toolButtons[InfiniteCanvasView.Tool.TEXT] = toolButton(icon(Icon.TEXT)) { setTool(InfiniteCanvasView.Tool.TEXT) }.also { bar.addView(it) }
-        bar.addView(toolButton(icon(Icon.IMAGE)) { finishTyping(); closeTray(); showInsertMenu() })
+        toolButtons[InfiniteCanvasView.Tool.SELECT] = toolButton(icon(Icon.LASSO), "Seleção") { setTool(InfiniteCanvasView.Tool.SELECT) }.also { bar.addView(it) }
+        toolButtons[InfiniteCanvasView.Tool.TEXT] = toolButton(icon(Icon.TEXT), "Texto") { setTool(InfiniteCanvasView.Tool.TEXT) }.also { bar.addView(it) }
+        bar.addView(toolButton(icon(Icon.IMAGE), "Inserir imagem ou PDF") { finishTyping(); closeTray(); showInsertMenu() })
         colorDivider = dockDivider()
         bar.addView(colorDivider)
         colorDot = ColorDot(this, canvasView.pen.color, false) {
@@ -393,6 +402,14 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         })
         trayLayer.visibility = View.VISIBLE
         openTray = which
+        if (Ui.animationsOn()) {
+            tray.alpha = 0f
+            tray.translationY = -dp(10f)
+            tray.scaleX = 0.98f
+            tray.scaleY = 0.98f
+            tray.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f)
+                .setDuration(240).setInterpolator(Ui.EASE).start()
+        }
     }
 
     private fun closeTray() {
@@ -412,7 +429,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         selectionLabel = label("", 13f, Ui.ACCENT, bold = true)
         val outer = horizontal().apply {
             background = pill(Ui.SURFACE, Color.parseColor("#EEF0F3"))
-            elevation = dp(10f)
+            Ui.run { softShadow(12f) }
             isClickable = true
             setPadding(0, dpi(4f), 0, dpi(4f))
         }
@@ -642,7 +659,14 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
     }
 
     override fun onSelectionChanged(count: Int) {
+        val wasVisible = selectionBar.visibility == View.VISIBLE
         selectionBar.visibility = if (count > 0 || canvasView.inCropMode) View.VISIBLE else View.GONE
+        if (!wasVisible && selectionBar.visibility == View.VISIBLE && Ui.animationsOn()) {
+            // Barra sobe de baixo com a mesma curva das bandejas.
+            selectionBar.alpha = 0f
+            selectionBar.translationY = dp(16f)
+            selectionBar.animate().alpha(1f).translationY(0f).setDuration(260).setInterpolator(Ui.EASE).start()
+        }
         // A barra fica embaixo, no lugar do contador de zoom.
         zoomLabel.visibility = if (selectionBar.visibility == View.VISIBLE) View.GONE else View.VISIBLE
         if (selectionBar.visibility == View.VISIBLE) fillSelectionBar()

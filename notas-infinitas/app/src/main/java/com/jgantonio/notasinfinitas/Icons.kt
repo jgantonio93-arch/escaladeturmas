@@ -20,6 +20,24 @@ enum class Icon {
     SEARCH, MARKER, ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT, TEXT_BIGGER, TEXT_SMALLER
 }
 
+/** Rótulo em português para leitores de tela (botões só com ícone). */
+val Icon.label: String
+    get() = when (this) {
+        Icon.BACK -> "Voltar"; Icon.UNDO -> "Desfazer"; Icon.REDO -> "Refazer"; Icon.MORE -> "Mais opções"
+        Icon.ERASER -> "Borracha"; Icon.LASSO -> "Seleção"; Icon.TEXT -> "Texto"; Icon.IMAGE -> "Inserir imagem ou PDF"
+        Icon.PLUS -> "Adicionar"; Icon.FOLDER -> "Pasta"; Icon.FOLDER_PLUS -> "Nova subpasta"; Icon.NOTE -> "Nota"
+        Icon.TRASH -> "Excluir"; Icon.COPY -> "Duplicar"; Icon.PALETTE -> "Cor"; Icon.CHECK -> "Concluir"
+        Icon.CLOSE -> "Fechar"; Icon.EDIT -> "Editar"; Icon.MOVE -> "Mover"; Icon.STAR -> "Favoritar"
+        Icon.TOUCH -> "Dedo"; Icon.EXPORT -> "Exportar"; Icon.PDF -> "PDF"; Icon.PAGE -> "Plano de fundo"
+        Icon.CENTER -> "Centralizar"; Icon.SHAPES -> "Formas"; Icon.CHEVRON_RIGHT -> "Abrir"; Icon.ROTATE -> "Girar"
+        Icon.LOCK -> "Travar"; Icon.UNLOCK -> "Destravar"; Icon.CROP -> "Recortar"; Icon.FLIP_H -> "Espelhar"
+        Icon.FLIP_V -> "Virar"; Icon.ADJUST -> "Ajustes"; Icon.TO_FRONT -> "Trazer para frente"; Icon.TO_BACK -> "Enviar para trás"
+        Icon.DOWNLOAD -> "Salvar"; Icon.RESET -> "Redefinir"; Icon.ZOOM -> "Zoom"; Icon.SELECT_ALL -> "Selecionar tudo"
+        Icon.SEARCH -> "Buscar"; Icon.MARKER -> "Marca-texto"; Icon.ALIGN_LEFT -> "Alinhar à esquerda"
+        Icon.ALIGN_CENTER -> "Centralizar texto"; Icon.ALIGN_RIGHT -> "Alinhar à direita"
+        Icon.TEXT_BIGGER -> "Aumentar"; Icon.TEXT_SMALLER -> "Diminuir"
+    }
+
 class IconDrawable(
     private val icon: Icon,
     color: Int,

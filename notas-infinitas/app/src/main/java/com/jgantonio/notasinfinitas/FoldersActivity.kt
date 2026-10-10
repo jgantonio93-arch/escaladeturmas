@@ -54,6 +54,7 @@ class FoldersActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Ui.init(this)
         Library.init(this)
         folderId = intent.getStringExtra(EXTRA_FOLDER)
         if (folderId != null && Library.folder(folderId) == null) {
@@ -63,7 +64,7 @@ class FoldersActivity : Activity() {
 
         val root = FrameLayout(this).apply {
             fitsSystemWindows = true
-            setBackgroundColor(Ui.BG)
+            background = Ui.run { paperBackground() }
         }
         content = vertical().apply {
             setPadding(dpi(16f), 0, dpi(16f), dpi(120f))
@@ -83,7 +84,7 @@ class FoldersActivity : Activity() {
                 setImageDrawable(icon(Icon.PDF, Ui.INK))
                 scaleType = ImageView.ScaleType.CENTER
                 background = ripple(circle(Ui.SURFACE, 0, 0f), circle(Color.WHITE, 0, 0f))
-                elevation = dp(6f)
+                Ui.run { softShadow(6f); pressable(0.94f) }
                 contentDescription = "Importar PDF"
                 setOnClickListener { pickPdf() }
             }, LinearLayout.LayoutParams(dpi(52f), dpi(52f)).apply { marginEnd = dpi(12f) })
@@ -91,7 +92,7 @@ class FoldersActivity : Activity() {
                 setImageDrawable(icon(Icon.FOLDER_PLUS, Ui.INK))
                 scaleType = ImageView.ScaleType.CENTER
                 background = ripple(circle(Ui.SURFACE, 0, 0f), circle(Color.WHITE, 0, 0f))
-                elevation = dp(6f)
+                Ui.run { softShadow(6f); pressable(0.94f) }
                 setOnClickListener { editFolder(null, folderId) }
             }, LinearLayout.LayoutParams(dpi(52f), dpi(52f)).apply { marginEnd = dpi(12f) })
         }
@@ -105,7 +106,7 @@ class FoldersActivity : Activity() {
             setCompoundDrawablesRelativeWithIntrinsicBounds(icon(Icon.PLUS, Color.WHITE, 22f, 2.2f), null, null, null)
             compoundDrawablePadding = dpi(8f)
             background = ripple(pill(Ui.ACCENT, 0), pill(Color.WHITE, 0), Color.parseColor("#33FFFFFF"))
-            elevation = dp(8f)
+            Ui.run { softShadow(8f); pressable(0.96f) }
             setOnClickListener { folderId?.let { newNote(it) } ?: editFolder(null, null) }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dpi(56f)))
         root.addView(fabs, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END).apply {
@@ -122,6 +123,7 @@ class FoldersActivity : Activity() {
             return
         }
         render()
+        animateEntry = false
         // Espera as gravações pendentes (miniaturas) e atualiza de novo.
         Library.io.execute { runOnUiThread { if (!isFinishing) render() } }
     }
@@ -162,8 +164,8 @@ class FoldersActivity : Activity() {
     private fun renderHome() {
         if (homeHead == null) {
             val head = vertical().apply { setPadding(dpi(6f), dpi(44f), dpi(6f), dpi(8f)) }
-            head.addView(label("NOTAS INFINITAS", 12f, Ui.ACCENT, bold = true).apply { letterSpacing = 0.12f })
-            head.addView(title("Pastas", 34f).apply { setPadding(0, dpi(2f), 0, 0) })
+            head.addView(label("Notas Infinitas", 13f, Ui.ACCENT, bold = true).apply { typeface = Ui.BOLD })
+            head.addView(title("Suas pastas", 40f).apply { setPadding(0, dpi(4f), 0, dpi(2f)) })
             homeCount = label("", 14f)
             head.addView(homeCount)
             val search = Ui.run { textField("", "Buscar notas e pastas") }.apply {
@@ -290,6 +292,20 @@ class FoldersActivity : Activity() {
         return box
     }
 
+    /** Entrada escalonada (sobe e aparece), só na primeira montagem e sem "remover animações". */
+    private var animateEntry = true
+
+    private fun enter(v: View, index: Int) {
+        if (!animateEntry || !Ui.animationsOn()) return
+        v.alpha = 0f
+        v.translationY = dp(14f)
+        v.animate().alpha(1f).translationY(0f)
+            .setStartDelay(minOf(index, 8) * 40L)
+            .setDuration(420)
+            .setInterpolator(Ui.EASE)
+            .start()
+    }
+
     private fun addGrid(cards: List<View>) {
         val cols = columns()
         var row: LinearLayout? = null
@@ -301,6 +317,7 @@ class FoldersActivity : Activity() {
             row!!.addView(card, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 setMargins(dpi(5f), dpi(5f), dpi(5f), dpi(5f))
             })
+            enter(card, i)
         }
         val rest = cards.size % cols
         if (rest != 0) repeat(cols - rest) {
@@ -317,8 +334,9 @@ class FoldersActivity : Activity() {
 
     private fun folderCard(f: Folder): View {
         val card = vertical().apply {
-            setPadding(dpi(16f), dpi(14f), dpi(6f), dpi(16f))
-            background = ripple(rounded(tint(f.color, 0.12f), 22f), rounded(Color.WHITE, 22f))
+            setPadding(dpi(16f), dpi(14f), dpi(6f), dpi(18f))
+            background = ripple(rounded(tint(f.color, 0.13f), 24f), rounded(Color.WHITE, 24f))
+            Ui.run { pressable(0.97f) }
             setOnClickListener {
                 startActivity(Intent(this@FoldersActivity, FoldersActivity::class.java).putExtra(EXTRA_FOLDER, f.id))
             }
@@ -330,9 +348,11 @@ class FoldersActivity : Activity() {
         top.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         top.addView(iconButton(Icon.MORE, Ui.MUTED, 36f) { folderOptions(f) })
         card.addView(top)
-        card.addView(label(f.name, 16f, Ui.INK, bold = true).apply {
+        card.addView(label(f.name, 17f, Ui.INK, bold = true).apply {
+            typeface = Ui.BOLD
             isSingleLine = true
-            setPadding(0, dpi(12f), dpi(8f), dpi(2f))
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(0, dpi(14f), dpi(8f), dpi(2f))
         })
         card.addView(label(countText(Library.folders.count { it.parent == f.id }, Library.notes.count { it.folder == f.id }), 13f))
         return card
@@ -343,8 +363,14 @@ class FoldersActivity : Activity() {
             setOnClickListener { openNote(n) }
             setOnLongClickListener { noteOptions(n); true }
         }
-        card(18f, 1.5f, card)
-        val thumbBox = FrameLayout(this).apply { setBackgroundColor(Color.WHITE) }
+        card(22f, 2f, card)
+        // "Double bezel": a miniatura é uma folha de papel encaixada dentro do cartão,
+        // com cantos concêntricos (22dp fora, 15dp dentro).
+        card.setPadding(dpi(7f), dpi(7f), dpi(7f), 0)
+        val thumbBox = FrameLayout(this).apply {
+            background = rounded(Color.parseColor("#FBFAF7"), 15f, Color.parseColor("#EFEBE3"))
+            clipToOutline = true
+        }
         val f = Library.thumbFile(n.id)
         val bmp = if (f.exists()) BitmapFactory.decodeFile(f.path) else null
         if (bmp != null) {
@@ -352,19 +378,24 @@ class FoldersActivity : Activity() {
                 setImageBitmap(bmp)
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 setPadding(dpi(10f), dpi(10f), dpi(10f), dpi(10f))
+                contentDescription = "Miniatura de ${n.title}"
             }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         } else {
-            thumbBox.addView(ImageView(this).apply { setImageDrawable(icon(Icon.NOTE, Color.parseColor("#C9CED6"), 34f, 1.6f)) },
-                FrameLayout.LayoutParams(dpi(40f), dpi(40f), Gravity.CENTER))
+            thumbBox.addView(ImageView(this).apply {
+                setImageDrawable(icon(Icon.NOTE, Color.parseColor("#C9C3B8"), 34f, 1.6f))
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, FrameLayout.LayoutParams(dpi(40f), dpi(40f), Gravity.CENTER))
         }
-        card.addView(thumbBox, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpi(128f)))
-        card.addView(View(this).apply { setBackgroundColor(Color.parseColor("#F0F1F4")) },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpi(1f)))
-        val info = horizontal().apply { setPadding(dpi(12f), dpi(8f), dpi(2f), dpi(10f)) }
+        card.addView(thumbBox, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpi(124f)))
+        val info = horizontal().apply { setPadding(dpi(7f), dpi(9f), 0, dpi(9f)) }
         val texts = vertical()
-        texts.addView(label(n.title, 14f, Ui.INK, bold = true).apply { isSingleLine = true })
+        texts.addView(label(n.title, 15f, Ui.INK, bold = true).apply {
+            typeface = Ui.BOLD
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        })
         val sub = if (showFolder) Library.folder(n.folder)?.name ?: "" else formatDate(n.modified)
-        texts.addView(label(sub, 12f).apply { isSingleLine = true })
+        texts.addView(label(sub, 12.5f).apply { isSingleLine = true; ellipsize = android.text.TextUtils.TruncateAt.END })
         info.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         info.addView(iconButton(Icon.MORE, Ui.MUTED, 34f) { noteOptions(n) })
         card.addView(info)

@@ -23,7 +23,8 @@ class PenRackView(context: Context, private val colorOf: (BrushType) -> Int, pri
     private val types = BrushType.entries
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
-        textSize = context.dp(11f)
+        textSize = context.dp(11.5f)
+        typeface = Ui.MEDIUM
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -50,7 +51,7 @@ class PenRackView(context: Context, private val colorOf: (BrushType) -> Int, pri
             val cx = slot * (i + 0.5f)
             val sel = t == selected
             labelPaint.color = if (sel) Ui.ACCENT else Ui.MUTED
-            labelPaint.isFakeBoldText = sel
+            labelPaint.typeface = if (sel) Ui.BOLD else Ui.MEDIUM
             canvas.drawText(t.shortLabel, cx, labelY, labelPaint)
         }
     }

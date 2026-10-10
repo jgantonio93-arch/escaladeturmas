@@ -69,6 +69,12 @@ As capturas em `docs/screenshots` são geradas pelo CI (Robolectric) a cada muda
   **Exportar PDF** (Downloads/NotasInfinitas).
 - Tudo é salvo automaticamente ao sair da nota.
 
+## Visual
+Direção definida com o Taste Skill (redesign), as Web Interface Guidelines da Vercel e o
+DESIGN.md do Notion (Awesome Design): papel quente, um único acento cor de tinta, títulos em
+**Fraunces** e interface em **Onest** (fontes OFL em `app/src/main/assets/fonts`, com licenças).
+Todos os pares de texto/fundo passam no contraste WCAG AA (auditado com o Playwright CLI).
+
 ## Como instalar
 O APK é gerado pelo GitHub Actions (workflow `Notas Infinitas (APK Android)`):
 abra a execução mais recente na aba **Actions**, baixe o artefato `notas-infinitas-apk`,

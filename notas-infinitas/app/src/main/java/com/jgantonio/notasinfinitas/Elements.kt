@@ -189,6 +189,9 @@ class TextSpan(val start: Int, val end: Int, val type: Int, val value: Int = 0) 
 
 enum class TextAlign { LEFT, CENTER, RIGHT }
 
+/** Contexto da aplicação, para fontes em assets (definido ao abrir as telas). */
+var appContext: android.content.Context? = null
+
 enum class TextFont(val label: String, val family: String) {
     SANS("Padrão", "sans-serif"),
     SERIF("Serifa", "serif"),
@@ -196,9 +199,17 @@ enum class TextFont(val label: String, val family: String) {
     HAND("Manuscrita", "casual"),
     CURSIVE("Cursiva", "cursive"),
     CONDENSED("Estreita", "sans-serif-condensed"),
-    ROUNDED("Leve", "sans-serif-light");
+    ROUNDED("Leve", "sans-serif-light"),
+    /** Fontes do app (em assets): serifa elegante e grotesca moderna. */
+    FRAUNCES("Fraunces", "fraunces"),
+    ONEST("Onest", "onest");
 
     fun typeface(bold: Boolean, italic: Boolean): android.graphics.Typeface {
+        val ctx = appContext
+        if (ctx != null && (this == FRAUNCES || this == ONEST)) {
+            val w = if (bold) 700 else 400
+            return if (this == FRAUNCES) Ui.fraunces(ctx, w, italic) else Ui.onest(ctx, w, italic)
+        }
         val style = when {
             bold && italic -> android.graphics.Typeface.BOLD_ITALIC
             bold -> android.graphics.Typeface.BOLD

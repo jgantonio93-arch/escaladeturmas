@@ -28,13 +28,14 @@ import com.jgantonio.notasinfinitas.Ui.sheet
 import com.jgantonio.notasinfinitas.Ui.switchRow
 import com.jgantonio.notasinfinitas.Ui.textField
 import com.jgantonio.notasinfinitas.Ui.vertical
+import com.jgantonio.notasinfinitas.Ui.softShadow
 import com.jgantonio.notasinfinitas.Ui.wrapRow
 
 /** Cartão flutuante usado pelas bandejas (caneta e borracha). */
 private fun Context.trayCard(): LinearLayout = vertical().apply {
     setPadding(dpi(16f), dpi(14f), dpi(16f), dpi(16f))
     background = rounded(Ui.SURFACE, 26f, Color.parseColor("#E9EBEF"))
-    elevation = dp(14f)
+    softShadow(14f)
     isClickable = true // não deixa o toque "vazar" para a tela de desenho
 }
 

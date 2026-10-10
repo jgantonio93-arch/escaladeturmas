@@ -328,7 +328,7 @@ class InlineTextEditor(
         setTextColor(Ui.INK)
         when (type) {
             TextSpan.BOLD -> typeface = Ui.BOLD
-            TextSpan.ITALIC -> typeface = android.graphics.Typeface.create("serif", android.graphics.Typeface.ITALIC)
+            TextSpan.ITALIC -> typeface = android.graphics.Typeface.create(Ui.MEDIUM, android.graphics.Typeface.ITALIC)
             TextSpan.UNDERLINE -> paintFlags = paintFlags or Paint.UNDERLINE_TEXT_FLAG
             TextSpan.STRIKE -> paintFlags = paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
         }
