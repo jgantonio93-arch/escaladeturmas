@@ -1,96 +1,26 @@
-name: TonyNotes (APK Android)
+name: Limpeza
 
 on:
   push:
     paths:
-      - "notas-infinitas/**"
       - ".github/workflows/notas-infinitas.yml"
-      - "!notas-infinitas/docs/**"
-  workflow_dispatch:
 
 permissions:
-  contents: write
   actions: write
+  contents: write
 
 jobs:
-  build:
+  limpar:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: notas-infinitas
     steps:
-      - uses: actions/checkout@v4
-
-      # O app é particular: enquanto o repositório estiver público, nada fica
-      # disponível para download (apaga versões publicadas e arquivos de builds).
-      - name: Proteger downloads (repositório público)
-        if: ${{ !github.event.repository.private }}
+      # Apaga o histórico de execuções deste workflow (o app foi para outro repositório).
+      - name: Apagar execuções antigas
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
-          gh release list --repo "$REPO" --limit 100 --json tagName --jq '.[].tagName | select(startswith("tonynotes-"))' \
-            | xargs -r -n1 gh release delete --repo "$REPO" --cleanup-tag -y
-          gh api "repos/$REPO/actions/artifacts" --paginate --jq '.artifacts[].id' \
+          gh api "repos/$REPO/actions/workflows/notas-infinitas.yml/runs" --paginate --jq '.workflow_runs[].id' \
+            | grep -v "^${GITHUB_RUN_ID}$" \
+            | xargs -r -I{} gh api -X DELETE "repos/$REPO/actions/runs/{}"
+          gh api "repos/$REPO/actions/artifacts" --paginate --jq '.artifacts[] | select(.workflow_run.head_branch == "claude/wonderful-thompson-221iwh") | .id' \
             | xargs -r -I{} gh api -X DELETE "repos/$REPO/actions/artifacts/{}"
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - uses: gradle/actions/setup-gradle@v4
-
-      - name: Compilar APK
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
-
-      - name: Publicar APK
-        if: ${{ github.event.repository.private }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: tonynotes-apk
-          path: notas-infinitas/app/build/outputs/apk/debug/*.apk
-
-      - name: Testes de funcionamento
-        run: ./gradlew testDebugUnitTest --tests "*FunctionalTest*"
-
-      # Só versões que passaram nos testes viram "Release", e só com o repositório
-      # privado (o download fica restrito a quem tem acesso). O link fixo
-      # https://github.com/<dono>/<repo>/releases/latest/download/TonyNotes.apk
-      # sempre baixa a mais recente (é o link do botão do site).
-      - name: Publicar versão (link fixo de download)
-        if: ${{ github.event.repository.private && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
-          TAG="tonynotes-v${VERSION}-build${GITHUB_RUN_NUMBER}"
-          cp app/build/outputs/apk/debug/TonyNotes-debug.apk TonyNotes.apk
-          gh release create "$TAG" TonyNotes.apk \
-            --target "$GITHUB_SHA" \
-            --title "TonyNotes ${VERSION} (build ${GITHUB_RUN_NUMBER})" \
-            --notes "Versão gerada automaticamente a partir de ${GITHUB_SHA::7}. Baixe o TonyNotes.apk e instale por cima da versão anterior: suas notas continuam lá." \
-            --latest
-          # Guarda só as 10 versões mais novas.
-          gh release list --limit 100 --json tagName,createdAt \
-            --jq 'sort_by(.createdAt) | reverse | .[].tagName | select(startswith("tonynotes-"))' \
-            | tail -n +11 | xargs -r -n1 gh release delete --cleanup-tag -y
-
-      - name: Gerar capturas de tela
-        if: always()
-        run: ./gradlew testDebugUnitTest --tests "*ScreenshotTest*" --stacktrace
-
-      - name: Salvar capturas no branch
-        if: always() && github.event_name == 'push'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/screenshots
-          if git diff --cached --quiet; then
-            echo "Capturas sem mudanças."
-          else
-            git commit -m "Atualiza capturas de tela [skip ci]"
-            git push origin "HEAD:${GITHUB_REF_NAME}" || echo "Branch mudou durante o build; capturas ficam para a próxima execução."
-          fi
