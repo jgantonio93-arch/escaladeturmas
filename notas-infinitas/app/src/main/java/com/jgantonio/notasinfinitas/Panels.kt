@@ -319,41 +319,6 @@ object Panels {
         }
     }
 
-    private val TEXT_SIZES = listOf("Pequeno" to 14f, "Médio" to 20f, "Grande" to 30f, "Título" to 44f)
-
-    /** Caixa para digitar texto. [onDone] recebe texto e tamanho (já em unidades do mundo). */
-    fun showText(
-        context: Context,
-        existing: TextElement?,
-        density: Float,
-        onDone: (String, Float) -> Unit,
-        onDelete: (() -> Unit)?,
-    ) {
-        context.sheet(if (existing == null) "Inserir texto" else "Editar texto") { box, dialog ->
-            val field = context.textField(existing?.text ?: "", "Digite aqui…", multiLine = true)
-            box.addView(field)
-            var size = existing?.let { it.size / density } ?: TEXT_SIZES[1].second
-            val start = TEXT_SIZES.indexOfFirst { kotlin.math.abs(it.second - size) < 0.5f }.coerceAtLeast(0)
-            box.addView(context.segmented(TEXT_SIZES.map { it.first }, start) { i -> size = TEXT_SIZES[i].second }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = context.dpi(12f)
-            })
-            val buttons = mutableListOf<View>()
-            if (onDelete != null) {
-                buttons.add(context.secondaryButton("Excluir") { dialog.dismiss(); onDelete() }.apply { setTextColor(Ui.DANGER) })
-            }
-            buttons.add(context.secondaryButton("Cancelar") { dialog.dismiss() })
-            buttons.add(context.primaryButton("Pronto") {
-                dialog.dismiss()
-                val t = field.text.toString().trimEnd()
-                if (t.isNotBlank() || existing != null) onDone(t, size * density)
-            })
-            box.addView(context.buttonRow(*buttons.toTypedArray()))
-            field.requestFocus()
-            dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or
-                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-        }
-    }
-
     /** Escolher uma cor (usado para recolorir a seleção). */
     fun showColorChoice(context: Context, prefs: PenPrefs, current: Int, onPick: (Int) -> Unit) {
         context.sheet("Mudar cor") { box, dialog ->

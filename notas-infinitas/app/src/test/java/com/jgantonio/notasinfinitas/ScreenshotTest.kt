@@ -37,7 +37,7 @@ class ScreenshotTest {
     @Test
     fun captureScreens() {
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
-        Library.init(app)
+        Library.init(app, reload = true)
         val (escola, nota) = seed(app)
 
         val home = Robolectric.buildActivity(FoldersActivity::class.java).setup().get()
@@ -77,9 +77,28 @@ class ScreenshotTest {
         canvas.setCropShape(InfiniteCanvasView.CropShape.SQUARE)
         save(snap(editor), "10-recorte")
         canvas.cancelCrop()
+        canvas.clearSelection()
+
+        // Texto: edição na tela com a barra de formatação, depois selecionado e girado
+        val te = editor.textEditorForTests
+        te.start(null, canvas.worldX(560f), canvas.worldY(1500f))
+        val edit = allViews(editor.window.decorView).filterIsInstance<android.widget.EditText>().single()
+        edit.setText("Primeira lei: inércia")
+        edit.text.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, 13, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        edit.text.setSpan(android.text.style.BackgroundColorSpan(0x99FFE600.toInt()), 14, 21, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        edit.setSelection(edit.text.length)
+        save(snap(editor), "11-texto-editando")
+        te.finish()
+        val txt = canvas.elementsSnapshot().last { it is TextElement }
+        canvas.select(txt)
+        canvas.rotateSelection(-8f)
+        save(snap(editor), "12-texto-selecionado")
     }
 
     // ---- Captura ---------------------------------------------------------------------
+
+    private fun allViews(v: View): List<View> =
+        if (v is android.view.ViewGroup) listOf(v) + (0 until v.childCount).flatMap { allViews(v.getChildAt(it)) } else listOf(v)
 
     private fun layoutRoot(v: View, w: Int, h: Int) {
         v.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY))

@@ -38,11 +38,15 @@ jobs:
           name: notas-infinitas-apk
           path: notas-infinitas/app/build/outputs/apk/debug/*.apk
 
+      - name: Testes de funcionamento
+        run: ./gradlew testDebugUnitTest --tests "*FunctionalTest*"
+
       - name: Gerar capturas de tela
+        if: always()
         run: ./gradlew testDebugUnitTest --tests "*ScreenshotTest*" --stacktrace
 
       - name: Salvar capturas no branch
-        if: github.event_name == 'push'
+        if: always() && github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

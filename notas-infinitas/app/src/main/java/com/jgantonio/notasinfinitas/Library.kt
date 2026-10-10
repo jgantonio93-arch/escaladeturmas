@@ -33,9 +33,12 @@ object Library {
     private lateinit var dir: File
     private var loaded = false
 
-    fun init(context: Context) {
-        if (loaded) return
-        dir = context.filesDir
+    fun init(context: Context, reload: Boolean = false) {
+        val d = context.filesDir
+        if (loaded && dir == d && !reload) return
+        folders.clear()
+        notes.clear()
+        dir = d
         load()
         loaded = true
         migrateFirstPrototype()

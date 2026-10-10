@@ -173,37 +173,165 @@ class StrokeElement(
     }
 }
 
+/** Estilo aplicado a um trecho do texto (início/fim em caracteres). */
+class TextSpan(val start: Int, val end: Int, val type: Int, val value: Int = 0) {
+    companion object {
+        const val BOLD = 1
+        const val ITALIC = 2
+        const val UNDERLINE = 3
+        const val STRIKE = 4
+        const val COLOR = 5
+        const val HIGHLIGHT = 6
+        /** Tamanho relativo, em porcentagem do tamanho da caixa. */
+        const val SIZE = 7
+    }
+}
+
+enum class TextAlign { LEFT, CENTER, RIGHT }
+
+enum class TextFont(val label: String, val family: String) {
+    SANS("Padrão", "sans-serif"),
+    SERIF("Serifa", "serif"),
+    MONO("Máquina", "monospace"),
+    HAND("Manuscrita", "casual"),
+    CURSIVE("Cursiva", "cursive"),
+    CONDENSED("Estreita", "sans-serif-condensed"),
+    ROUNDED("Leve", "sans-serif-light");
+
+    fun typeface(bold: Boolean, italic: Boolean): android.graphics.Typeface {
+        val style = when {
+            bold && italic -> android.graphics.Typeface.BOLD_ITALIC
+            bold -> android.graphics.Typeface.BOLD
+            italic -> android.graphics.Typeface.ITALIC
+            else -> android.graphics.Typeface.NORMAL
+        }
+        return android.graphics.Typeface.create(family, style)
+    }
+}
+
+/**
+ * Caixa de texto. (x, y) é o canto superior esquerdo do quadro sem rotação; a caixa
+ * gira em torno do próprio centro. Estilos da caixa inteira (negrito, cor, fonte...)
+ * e estilos por trecho ([spans]) convivem, como no Samsung Notes.
+ */
 class TextElement(
     val text: String,
     val x: Float,
     val y: Float,
     val size: Float,
     val color: Int,
+    val rotation: Float = 0f,
+    val flipH: Boolean = false,
+    val flipV: Boolean = false,
+    val bold: Boolean = false,
+    val italic: Boolean = false,
+    val underline: Boolean = false,
+    val strike: Boolean = false,
+    val align: TextAlign = TextAlign.LEFT,
+    val font: TextFont = TextFont.SANS,
+    /** Fundo da caixa inteira (0 = sem fundo). */
+    val bgColor: Int = 0,
+    val spans: List<TextSpan> = emptyList(),
 ) : Element() {
 
-    val lines: List<String> = text.split('\n')
-    val lineHeight get() = size * 1.3f
+    fun with(
+        text: String = this.text, x: Float = this.x, y: Float = this.y, size: Float = this.size, color: Int = this.color,
+        rotation: Float = this.rotation, flipH: Boolean = this.flipH, flipV: Boolean = this.flipV,
+        bold: Boolean = this.bold, italic: Boolean = this.italic, underline: Boolean = this.underline, strike: Boolean = this.strike,
+        align: TextAlign = this.align, font: TextFont = this.font, bgColor: Int = this.bgColor, spans: List<TextSpan> = this.spans,
+    ) = TextElement(text, x, y, size, color, ImageElement.normalizeAngle(rotation), flipH, flipV, bold, italic, underline, strike,
+        align, font, bgColor, spans)
 
-    override val bounds: RectF = run {
-        paint.textSize = size
-        val w = lines.maxOf { paint.measureText(it) }
-        RectF(x, y, x + max(w, size), y + lines.size * lineHeight)
+    fun paint() = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = size
+        color = this@TextElement.color
+        typeface = font.typeface(bold, italic)
+        isUnderlineText = underline
+        isStrikeThruText = strike
     }
 
-    fun withColor(c: Int) = TextElement(text, x, y, size, c)
+    /** Texto com os estilos por trecho aplicados. */
+    fun spanned(): CharSequence {
+        val sp = android.text.SpannableString(text)
+        val flag = android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        for (s in spans) {
+            val a = s.start.coerceIn(0, text.length)
+            val b = s.end.coerceIn(a, text.length)
+            if (a == b) continue
+            val span: Any = when (s.type) {
+                TextSpan.BOLD -> android.text.style.StyleSpan(android.graphics.Typeface.BOLD)
+                TextSpan.ITALIC -> android.text.style.StyleSpan(android.graphics.Typeface.ITALIC)
+                TextSpan.UNDERLINE -> android.text.style.UnderlineSpan()
+                TextSpan.STRIKE -> android.text.style.StrikethroughSpan()
+                TextSpan.COLOR -> android.text.style.ForegroundColorSpan(s.value)
+                TextSpan.HIGHLIGHT -> android.text.style.BackgroundColorSpan(s.value)
+                TextSpan.SIZE -> android.text.style.RelativeSizeSpan(s.value / 100f)
+                else -> continue
+            }
+            sp.setSpan(span, a, b, flag)
+        }
+        return sp
+    }
+
+    /** Layout do texto (calculado uma vez; o elemento é imutável). */
+    val layout: android.text.StaticLayout by lazy {
+        val p = paint()
+        val content = spanned()
+        val w = kotlin.math.ceil(android.text.Layout.getDesiredWidth(content, p)).toInt().coerceAtLeast((size * 0.6f).toInt()) + 2
+        val alignment = when (align) {
+            TextAlign.LEFT -> android.text.Layout.Alignment.ALIGN_NORMAL
+            TextAlign.CENTER -> android.text.Layout.Alignment.ALIGN_CENTER
+            TextAlign.RIGHT -> android.text.Layout.Alignment.ALIGN_OPPOSITE
+        }
+        android.text.StaticLayout.Builder.obtain(content, 0, content.length, p, w)
+            .setAlignment(alignment)
+            .setIncludePad(true)
+            .build()
+    }
+
+    val boxWidth: Float get() = layout.width.toFloat()
+    val boxHeight: Float get() = max(layout.height.toFloat(), size)
+    val centerX get() = x + boxWidth / 2f
+    val centerY get() = y + boxHeight / 2f
+
+    /** Folga do fundo colorido em volta do texto. */
+    val pad get() = if (bgColor != 0) size * 0.25f else 0f
+
+    override val bounds: RectF by lazy {
+        val t = Transform(rotation = rotation, ox = centerX, oy = centerY)
+        val p = pad
+        val xs = floatArrayOf(x - p, x + boxWidth + p, x + boxWidth + p, x - p)
+        val ys = floatArrayOf(y - p, y - p, y + boxHeight + p, y + boxHeight + p)
+        val cx = FloatArray(4) { t.x(xs[it], ys[it]) }
+        val cy = FloatArray(4) { t.y(xs[it], ys[it]) }
+        RectF(cx.min(), cy.min(), cx.max(), cy.max())
+    }
+
+    fun contains(px: Float, py: Float): Boolean {
+        val t = Transform(rotation = -rotation, ox = centerX, oy = centerY)
+        val lx = t.x(px, py)
+        val ly = t.y(px, py)
+        val p = pad + size * 0.15f
+        return lx >= x - p && lx <= x + boxWidth + p && ly >= y - p && ly <= y + boxHeight + p
+    }
+
+    fun withColor(c: Int) = with(color = c, spans = spans.filter { it.type != TextSpan.COLOR })
 
     override fun transformed(t: Transform): TextElement {
-        val cx = bounds.centerX()
-        val cy = bounds.centerY()
-        val ncx = t.x(cx, cy)
-        val ncy = t.y(cx, cy)
-        return TextElement(text, ncx - bounds.width() * t.scale / 2f, ncy - bounds.height() * t.scale / 2f, size * t.scale, color)
+        val ncx = t.x(centerX, centerY)
+        val ncy = t.y(centerX, centerY)
+        // A largura acompanha o tamanho da fonte (o texto não quebra sozinho).
+        val w = boxWidth * t.scale
+        val h = boxHeight * t.scale
+        return with(x = ncx - w / 2f, y = ncy - h / 2f, size = size * t.scale, rotation = rotation + t.rotation)
     }
 
-    override fun insideLasso(lasso: Lasso) = lasso.contains(bounds.centerX(), bounds.centerY())
+    override fun insideLasso(lasso: Lasso) = lasso.contains(centerX, centerY)
 
-    companion object {
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    /** Mesmo centro, novo conteúdo/estilo (usado ao terminar de editar). */
+    fun keepingCenterOf(old: TextElement): TextElement {
+        if (old.rotation == 0f && !old.flipH && !old.flipV) return with(x = old.x, y = old.y)
+        return with(x = old.centerX - boxWidth / 2f, y = old.centerY - boxHeight / 2f)
     }
 }
 

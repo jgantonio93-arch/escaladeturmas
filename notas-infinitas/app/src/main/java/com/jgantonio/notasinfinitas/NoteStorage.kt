@@ -29,15 +29,17 @@ class NoteData(
  * Versão 1: só traços (x, y, pressão) — formato do primeiro protótipo.
  * Versão 2: traços com pincel e espessura por ponto, textos, imagens e plano de fundo.
  * Versão 3: imagens com rotação, recorte, filtros, moldura, trava etc. (tipo 4).
+ * Versão 4: textos com rotação, espelhamento, fonte, alinhamento e estilos por trecho (tipo 5).
  */
 object NoteStorage {
     private const val MAGIC = 0x4E494E46 // "NINF"
-    private const val VERSION = 3
+    private const val VERSION = 4
 
     private const val TYPE_STROKE = 1
     private const val TYPE_TEXT = 2
     private const val TYPE_IMAGE = 3
     private const val TYPE_IMAGE_V3 = 4
+    private const val TYPE_TEXT_V4 = 5
 
     fun save(file: File, data: NoteData) {
         file.parentFile?.mkdirs()
@@ -64,12 +66,22 @@ object NoteStorage {
                     }
                 }
                 is TextElement -> {
-                    out.writeByte(TYPE_TEXT)
+                    out.writeByte(TYPE_TEXT_V4)
                     val bytes = e.text.toByteArray(Charsets.UTF_8)
                     out.writeInt(bytes.size)
                     out.write(bytes)
                     out.writeFloat(e.x); out.writeFloat(e.y); out.writeFloat(e.size)
                     out.writeInt(e.color)
+                    out.writeFloat(e.rotation)
+                    out.writeBoolean(e.flipH); out.writeBoolean(e.flipV)
+                    out.writeBoolean(e.bold); out.writeBoolean(e.italic)
+                    out.writeBoolean(e.underline); out.writeBoolean(e.strike)
+                    out.writeInt(e.align.ordinal); out.writeInt(e.font.ordinal)
+                    out.writeInt(e.bgColor)
+                    out.writeInt(e.spans.size)
+                    for (sp in e.spans) {
+                        out.writeInt(sp.start); out.writeInt(sp.end); out.writeInt(sp.type); out.writeInt(sp.value)
+                    }
                 }
                 is ImageElement -> {
                     out.writeByte(TYPE_IMAGE_V3)
@@ -106,7 +118,7 @@ object NoteStorage {
                 if (input.readInt() != MAGIC) return null
                 when (input.readInt()) {
                     1 -> readV1(input)
-                    2, 3 -> readV2(input)
+                    2, 3, 4 -> readV2(input)
                     else -> null
                 }
             }
@@ -160,6 +172,20 @@ object NoteStorage {
                     input.readUTF(),
                     RectF(input.readFloat(), input.readFloat(), input.readFloat(), input.readFloat()),
                 ))
+                TYPE_TEXT_V4 -> {
+                    val text = ByteArray(input.readInt()).also { input.readFully(it) }.toString(Charsets.UTF_8)
+                    val x = input.readFloat(); val y = input.readFloat(); val size = input.readFloat()
+                    val color = input.readInt()
+                    val rotation = input.readFloat()
+                    val flipH = input.readBoolean(); val flipV = input.readBoolean()
+                    val bold = input.readBoolean(); val italic = input.readBoolean()
+                    val underline = input.readBoolean(); val strike = input.readBoolean()
+                    val align = TextAlign.entries.getOrElse(input.readInt()) { TextAlign.LEFT }
+                    val font = TextFont.entries.getOrElse(input.readInt()) { TextFont.SANS }
+                    val bg = input.readInt()
+                    val spans = List(input.readInt()) { TextSpan(input.readInt(), input.readInt(), input.readInt(), input.readInt()) }
+                    elements.add(TextElement(text, x, y, size, color, rotation, flipH, flipV, bold, italic, underline, strike, align, font, bg, spans))
+                }
                 TYPE_IMAGE_V3 -> {
                     val file = input.readUTF()
                     val rect = RectF(input.readFloat(), input.readFloat(), input.readFloat(), input.readFloat())

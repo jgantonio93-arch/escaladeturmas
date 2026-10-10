@@ -60,6 +60,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
     private lateinit var prefs: PenPrefs
     private lateinit var canvasView: InfiniteCanvasView
     internal val canvasForTests get() = canvasView
+    internal val textEditorForTests get() = textEditor
 
     private lateinit var titleView: TextView
     private lateinit var subtitleView: TextView
@@ -70,6 +71,9 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
     private lateinit var selectionBar: View
     private lateinit var selectionLabel: TextView
     private lateinit var zoomLabel: TextView
+
+    private lateinit var textEditor: InlineTextEditor
+    private lateinit var stage: FrameLayout
 
     private val toolButtons = LinkedHashMap<InfiniteCanvasView.Tool, ImageView>()
     private lateinit var penToolButton: ImageView
@@ -99,12 +103,24 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            fitsSystemWindows = true
             setBackgroundColor(Ui.SURFACE)
+        }
+        // Barras do sistema e teclado: a área da nota encolhe quando o teclado abre,
+        // para a barra de formatação de texto ficar logo acima dele.
+        root.setOnApplyWindowInsetsListener { v, insets ->
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                val bars = insets.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout())
+                val ime = insets.getInsets(android.view.WindowInsets.Type.ime())
+                v.setPadding(bars.left, bars.top, bars.right, max(bars.bottom, ime.bottom))
+            } else {
+                @Suppress("DEPRECATION")
+                v.setPadding(insets.systemWindowInsetLeft, insets.systemWindowInsetTop, insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
+            }
+            insets
         }
         root.addView(buildTopBar())
 
-        val stage = FrameLayout(this)
+        stage = FrameLayout(this)
         stage.addView(canvasView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         zoomLabel = TextView(this).apply {
@@ -124,7 +140,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
 
         selectionBar = buildSelectionBar()
         selectionBar.visibility = View.GONE
-        stage.addView(selectionBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+        stage.addView(selectionBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
             setMargins(dpi(12f), 0, dpi(12f), dpi(18f))
         })
 
@@ -139,6 +155,13 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         root.addView(stage, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
 
+        textEditor = InlineTextEditor(this, stage, canvasView,
+            defaultColor = { canvasView.pen.color.takeIf { canvasView.pen.type != BrushType.HIGHLIGHTER } ?: Ui.INK },
+            onFinished = { refresh() })
+        stage.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (bottom - top != oldBottom - oldTop && textEditor.isActive) stage.post { textEditor.keepVisible() }
+        }
+
         NoteStorage.load(Library.noteFile(note.id))?.let { canvasView.load(it) }
         refresh()
         intent.getStringExtra(EXTRA_PDF)?.let { u ->
@@ -150,12 +173,14 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
 
     override fun onPause() {
         super.onPause()
+        if (::textEditor.isInitialized && textEditor.isActive) textEditor.finish()
         if (::canvasView.isInitialized) save()
     }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when {
+            textEditor.isActive -> textEditor.finish()
             openTray != null -> closeTray()
             canvasView.hasSelection -> canvasView.clearSelection()
             else -> @Suppress("DEPRECATION") super.onBackPressed()
@@ -269,6 +294,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
     }
 
     private fun setTool(tool: InfiniteCanvasView.Tool) {
+        if (textEditor.isActive) textEditor.finish()
         closeTray()
         canvasView.tool = tool
         refresh()
@@ -330,24 +356,31 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
     // ---- Barra de seleção ----------------------------------------------------------------
 
     private lateinit var selectionRow: LinearLayout
+    private lateinit var selectionTrailing: LinearLayout
 
     private fun buildSelectionBar(): View {
-        selectionRow = horizontal().apply { setPadding(dpi(14f), dpi(4f), dpi(6f), dpi(4f)) }
+        selectionRow = horizontal().apply { setPadding(dpi(14f), 0, dpi(4f), 0) }
+        selectionTrailing = horizontal().apply { setPadding(0, 0, dpi(6f), 0) }
         selectionLabel = label("", 13f, Ui.ACCENT, bold = true)
-        val scroll = android.widget.HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
+        val outer = horizontal().apply {
             background = pill(Ui.SURFACE, Color.parseColor("#EEF0F3"))
             elevation = dp(10f)
             isClickable = true
-            addView(selectionRow)
+            setPadding(0, dpi(4f), 0, dpi(4f))
         }
-        return scroll
+        outer.addView(android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(selectionRow)
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        outer.addView(selectionTrailing)
+        return outer
     }
 
     /** Monta os botões conforme o que está selecionado (imagem, item travado, traços...). */
     private fun fillSelectionBar() {
         val row = selectionRow
         row.removeAllViews()
+        selectionTrailing.removeAllViews()
         (selectionLabel.parent as? ViewGroup)?.removeView(selectionLabel)
         if (canvasView.inCropMode) {
             fillCropBar(row)
@@ -355,9 +388,11 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         }
         val items = canvasView.selectedItems
         val img = canvasView.selectedImage
+        val txt = canvasView.selectedText
         selectionLabel.text = when {
             img != null && img.pdfPage > 0 -> "Página ${img.pdfPage}"
             img != null -> "Imagem"
+            txt != null -> "Texto"
             items.size == 1 -> "1 item"
             else -> "${items.size} itens"
         }
@@ -366,6 +401,24 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         })
         if (canvasView.selectionLocked) {
             row.addView(pillButton(Icon.UNLOCK, "Destravar") { canvasView.setLocked(false) })
+            row.addView(pillButton(Icon.TRASH, "Excluir") { canvasView.deleteSelection() })
+        } else if (txt != null) {
+            row.addView(pillButton(Icon.EDIT, "Editar") {
+                canvasView.clearSelection()
+                textEditor.start(txt, 0f, 0f)
+            })
+            row.addView(pillButton(Icon.TEXT_BIGGER, "Maior") { canvasView.editTexts { scaleText(it, 1.2f) } })
+            row.addView(pillButton(Icon.TEXT_SMALLER, "Menor") { canvasView.editTexts { scaleText(it, 1f / 1.2f) } })
+            row.addView(pillButton(Icon.ROTATE, "Girar 90°") { canvasView.rotateSelection(90f) })
+            row.addView(pillButton(Icon.FLIP_H, "Espelhar") { canvasView.editTexts { it.with(flipH = !it.flipH) } })
+            row.addView(pillButton(Icon.FLIP_V, "Virar") { canvasView.editTexts { it.with(flipV = !it.flipV) } })
+            row.addView(pillButton(Icon.PALETTE, "Cor") {
+                Panels.showColorChoice(this, prefs, txt.color) { canvasView.recolorSelection(it) }
+            })
+            row.addView(pillButton(Icon.RESET, "Endireitar") { canvasView.editTexts { it.with(rotation = 0f, flipH = false, flipV = false) } })
+            row.addView(pillButton(Icon.TO_FRONT, "Frente") { canvasView.reorderSelection(true) })
+            row.addView(pillButton(Icon.TO_BACK, "Trás") { canvasView.reorderSelection(false) })
+            row.addView(pillButton(Icon.COPY, "Duplicar") { canvasView.duplicateSelection() })
             row.addView(pillButton(Icon.TRASH, "Excluir") { canvasView.deleteSelection() })
         } else if (img != null) {
             row.addView(pillButton(Icon.CROP, "Recortar") { canvasView.startCrop() })
@@ -402,8 +455,12 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
             row.addView(pillButton(Icon.TO_BACK, "Trás") { canvasView.reorderSelection(false) })
             if (items.any { it is ImageElement }) row.addView(pillButton(Icon.LOCK, "Travar imagens") { canvasView.setLocked(true) })
         }
-        row.addView(iconButton(Icon.CHECK, Ui.ACCENT, 40f) { canvasView.clearSelection() })
+        selectionTrailing.addView(iconButton(Icon.CHECK, Ui.ACCENT, 40f) { canvasView.clearSelection() })
     }
+
+    /** Aumenta/diminui o texto mantendo o centro no lugar. */
+    private fun scaleText(t: TextElement, k: Float) =
+        t.transformed(Transform(scale = k, ox = t.centerX, oy = t.centerY))
 
     private fun fillCropBar(row: LinearLayout) {
         val shapes = listOf(
@@ -432,8 +489,8 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
             })
         }
         row.addView(pillButton(Icon.RESET, "Tudo") { canvasView.resetCrop(); fillSelectionBar() })
-        row.addView(iconButton(Icon.CLOSE, Ui.MUTED, 40f) { canvasView.cancelCrop() })
-        row.addView(TextView(this).apply {
+        selectionTrailing.addView(iconButton(Icon.CLOSE, Ui.MUTED, 40f) { canvasView.cancelCrop() })
+        selectionTrailing.addView(TextView(this).apply {
             text = "Aplicar"
             textSize = 14f
             typeface = Ui.MEDIUM
@@ -523,6 +580,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
     // ---- Listener da tela ---------------------------------------------------------
 
     override fun onStateChanged() {
+        if (::textEditor.isInitialized) textEditor.reposition()
         undoButton.alpha = if (canvasView.canUndo) 1f else 0.3f
         redoButton.alpha = if (canvasView.canRedo) 1f else 0.3f
         zoomLabel.text = "${canvasView.zoomPercent}%"
@@ -541,11 +599,9 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
     }
 
     override fun onTextRequest(x: Float, y: Float, existing: TextElement?) {
-        Panels.showText(this, existing, density, onDone = { text, size ->
-            val color = canvasView.pen.color
-            if (existing == null) canvasView.addText(x, y, text, size, color)
-            else canvasView.replaceText(existing, text, size, existing.color)
-        }, onDelete = existing?.let { e -> { canvasView.replaceText(e, "", e.size, e.color) } })
+        closeTray()
+        canvasView.clearSelection()
+        textEditor.start(existing, x, y)
     }
 
     // ---- Imagem -----------------------------------------------------------------

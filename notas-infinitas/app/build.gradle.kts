@@ -11,8 +11,8 @@ android {
         applicationId = "com.jgantonio.notasinfinitas"
         minSdk = 29
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 5
+        versionName = "0.5.0"
     }
 
     signingConfigs {
@@ -50,6 +50,10 @@ android {
             isIncludeAndroidResources = true
             all {
                 it.systemProperty("shots.dir", rootProject.file("docs/screenshots").absolutePath)
+                it.testLogging {
+                    events("passed", "failed")
+                    exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+                }
             }
         }
     }

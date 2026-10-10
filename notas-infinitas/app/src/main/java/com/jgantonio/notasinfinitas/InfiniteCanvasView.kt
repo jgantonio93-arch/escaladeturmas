@@ -256,20 +256,63 @@ class InfiniteCanvasView(context: Context) : View(context) {
         commit()
     }
 
-    fun addText(x: Float, y: Float, text: String, size: Float, color: Int) {
+    fun addText(e: TextElement) {
         begin()
-        insertAt(elements.size, TextElement(text, x, y, size, color))
+        insertAt(elements.size, e)
         commit()
     }
 
-    fun replaceText(old: TextElement, text: String, size: Float, color: Int) {
+    /** Troca a caixa [old] por [new] (ou apaga, se [new] for nulo). */
+    fun replaceText(old: TextElement, new: TextElement?) {
         val i = elements.indexOf(old)
         if (i < 0) return
         begin()
         removeAt(i)
-        if (text.isNotBlank()) insertAt(i, TextElement(text, old.x, old.y, size, color))
+        if (new != null) insertAt(i, new)
         commit()
+        if (selection.contains(old)) {
+            if (new != null) setSelection(listOf(new)) else clearSelection()
+        }
     }
+
+    /** Texto sendo editado na tela (não é desenhado pelo canvas enquanto isso). */
+    var editingText: TextElement? = null
+        set(v) { field = v; invalidate() }
+
+    /** Quando não nulo, recebe o primeiro toque (ex.: para terminar a edição de texto). */
+    var touchInterceptor: (() -> Boolean)? = null
+
+    val zoom get() = scale
+    fun screenX(wx: Float) = wx * scale + offsetX
+    fun screenY(wy: Float) = wy * scale + offsetY
+    fun worldX(sx: Float) = wx(sx)
+    fun worldY(sy: Float) = wy(sy)
+
+    /** Rola a tela (sem mudar o zoom) para que o retângulo do mundo [r] fique visível. */
+    fun ensureVisible(r: RectF, marginPx: Float) {
+        var dx = 0f
+        var dy = 0f
+        val l = screenX(r.left); val t = screenY(r.top); val rr = screenX(r.right); val b = screenY(r.bottom)
+        if (b > height - marginPx) dy = height - marginPx - b
+        if (t + dy < marginPx) dy = marginPx - t
+        if (rr > width - marginPx) dx = width - marginPx - rr
+        if (l + dx < marginPx) dx = marginPx - l
+        if (dx != 0f || dy != 0f) {
+            offsetX += dx
+            offsetY += dy
+            invalidate()
+            listener?.onStateChanged()
+        }
+    }
+
+    /** Aplica [change] aos textos selecionados (uma ação de desfazer). */
+    fun editTexts(change: (TextElement) -> TextElement) {
+        val pairs = selection.map { if (it is TextElement) it to change(it) else it to it }
+        replaceAll(pairs)
+        setSelection(pairs.map { it.second })
+    }
+
+    val selectedText: TextElement? get() = selection.singleOrNull() as? TextElement
 
     private fun viewCenterWorld() = wx(width / 2f) to wy(height / 2f)
 
@@ -476,6 +519,11 @@ class InfiniteCanvasView(context: Context) : View(context) {
         if (selection.isEmpty()) return null
         val img = selectedImage
         if (img != null) return Frame(img.centerX, img.centerY, img.rect.width(), img.rect.height(), img.rotation)
+        val txt = selectedText
+        if (txt != null) {
+            val p = txt.pad
+            return Frame(txt.centerX, txt.centerY, txt.boxWidth + p * 2, txt.boxHeight + p * 2, txt.rotation)
+        }
         val r = RectF(selection[0].bounds)
         for (e in selection) r.union(e.bounds)
         return Frame(r.centerX(), r.centerY(), r.width(), r.height(), 0f)
@@ -792,7 +840,18 @@ class InfiniteCanvasView(context: Context) : View(context) {
         }
     }
 
+    private var swallowing = false
+
     override fun onTouchEvent(e: MotionEvent): Boolean {
+        // Um toque fora do texto em edição só termina a edição (não risca a nota).
+        if (e.actionMasked == MotionEvent.ACTION_DOWN && touchInterceptor?.invoke() == true) {
+            swallowing = true
+            return true
+        }
+        if (swallowing) {
+            if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) swallowing = false
+            return true
+        }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> onDown(e)
             MotionEvent.ACTION_POINTER_DOWN -> onPointerDown(e)
@@ -822,7 +881,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
         val pen = isPen(e, 0)
         if (pen && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             // Entrega os pontos da caneta sem esperar o próximo frame: menos atraso.
-            requestUnbufferedDispatch(e)
+            try { requestUnbufferedDispatch(e) } catch (_: Exception) { }
         }
         // No recorte, caneta e dedo ajustam o recorte (dois dedos ainda movem a tela).
         if (cropTarget != null) {
@@ -1030,7 +1089,10 @@ class InfiniteCanvasView(context: Context) : View(context) {
                     selT = Transform()
                     // Toque dentro da seleção: troca para o item tocado, se for outro.
                     val hit = hitTest(wx(downX), wy(downY))
+                    val single = selection.singleOrNull()
                     if (hit != null && selection.size > 1) setSelection(listOf(hit))
+                    // Tocar de novo num texto selecionado abre a edição (como no Samsung Notes).
+                    else if (single is TextElement && hit === single) listener?.onTextRequest(single.x, single.y, single)
                 } else {
                     commitSelectionTransform()
                 }
@@ -1039,7 +1101,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
                 if (tapped) {
                     val px = wx(downX)
                     val py = wy(downY)
-                    val hit = elements.lastOrNull { it is TextElement && it.bounds.contains(px, py) } as TextElement?
+                    val hit = elements.lastOrNull { it is TextElement && it.contains(px, py) } as TextElement?
                     listener?.onTextRequest(px, py, hit)
                 }
             }
@@ -1058,7 +1120,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
             val e = elements[i]
             val hit = when (e) {
                 is ImageElement -> e.contains(px, py)
-                is TextElement -> e.bounds.contains(px, py)
+                is TextElement -> e.contains(px, py)
                 is StrokeElement -> e.hits(px, py, r)
             }
             if (hit) return e
@@ -1341,18 +1403,26 @@ class InfiniteCanvasView(context: Context) : View(context) {
     private fun drawElement(canvas: Canvas, e: Element, renderScale: Float, sync: Boolean) {
         when (e) {
             is StrokeElement -> StrokeRenderer.drawElement(canvas, e)
-            is TextElement -> {
-                textPaint.textSize = e.size
-                textPaint.color = e.color
-                val fm = textPaint.fontMetrics
-                var baseline = e.y - fm.ascent
-                for (line in e.lines) {
-                    canvas.drawText(line, e.x, baseline, textPaint)
-                    baseline += e.lineHeight
-                }
-            }
+            is TextElement -> if (e !== editingText) drawText(canvas, e)
             is ImageElement -> images.draw(canvas, e, renderScale, sync)
         }
+    }
+
+    private val textBg = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    private fun drawText(canvas: Canvas, e: TextElement) {
+        canvas.save()
+        canvas.translate(e.centerX, e.centerY)
+        canvas.rotate(e.rotation)
+        canvas.scale(if (e.flipH) -1f else 1f, if (e.flipV) -1f else 1f)
+        canvas.translate(-e.boxWidth / 2f, -e.boxHeight / 2f)
+        if (e.bgColor != 0) {
+            textBg.color = e.bgColor
+            val p = e.pad
+            canvas.drawRoundRect(RectF(-p, -p, e.boxWidth + p, e.boxHeight + p), p, p, textBg)
+        }
+        e.layout.draw(canvas)
+        canvas.restore()
     }
 
     private fun isDarkPaper(): Boolean {

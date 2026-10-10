@@ -16,7 +16,8 @@ import kotlin.math.sin
 enum class Icon {
     BACK, UNDO, REDO, MORE, ERASER, LASSO, TEXT, IMAGE, PLUS, FOLDER, FOLDER_PLUS, NOTE,
     TRASH, COPY, PALETTE, CHECK, CLOSE, EDIT, MOVE, STAR, TOUCH, EXPORT, PDF, PAGE, CENTER, SHAPES, CHEVRON_RIGHT,
-    ROTATE, LOCK, UNLOCK, CROP, FLIP_H, FLIP_V, ADJUST, TO_FRONT, TO_BACK, DOWNLOAD, RESET, ZOOM, SELECT_ALL
+    ROTATE, LOCK, UNLOCK, CROP, FLIP_H, FLIP_V, ADJUST, TO_FRONT, TO_BACK, DOWNLOAD, RESET, ZOOM, SELECT_ALL,
+    MARKER, ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT, TEXT_BIGGER, TEXT_SMALLER
 }
 
 class IconDrawable(
@@ -261,6 +262,36 @@ class IconDrawable(
                 val dashed = Paint(stroke).apply { pathEffect = DashPathEffect(floatArrayOf(2.4f, 2.2f), 0f) }
                 c.drawPath(path { rrect(3.5f, 3.5f, 20.5f, 20.5f, 2.5f) }, dashed)
                 c.drawPath(path { rrect(8f, 8f, 16f, 16f, 1.5f) }, fill)
+            }
+            Icon.MARKER -> {
+                c.drawPath(path {
+                    moveTo(9f, 15f); lineTo(15.5f, 4.5f); lineTo(19.5f, 7f); lineTo(13f, 17.5f); close()
+                    moveTo(9f, 15f); lineTo(7.5f, 19f); lineTo(10.5f, 19f); lineTo(13f, 17.5f)
+                }, stroke)
+                val hl = Paint(fill).apply { alpha = 90 }
+                c.drawRect(3f, 20f, 21f, 22f, hl)
+            }
+            Icon.ALIGN_LEFT, Icon.ALIGN_CENTER, Icon.ALIGN_RIGHT -> {
+                val widths = floatArrayOf(16f, 10f, 14f, 8f)
+                val p = Path()
+                widths.forEachIndexed { i, w ->
+                    val y = 6f + i * 4f
+                    val x0 = when (icon) {
+                        Icon.ALIGN_LEFT -> 4f
+                        Icon.ALIGN_CENTER -> 12f - w / 2f
+                        else -> 20f - w
+                    }
+                    p.moveTo(x0, y); p.lineTo(x0 + w, y)
+                }
+                c.drawPath(p, stroke)
+            }
+            Icon.TEXT_BIGGER, Icon.TEXT_SMALLER -> {
+                c.drawPath(path {
+                    moveTo(3f, 19f); lineTo(8.5f, 5f); lineTo(14f, 19f)
+                    moveTo(5.2f, 14f); lineTo(11.8f, 14f)
+                    moveTo(16.5f, 8f); lineTo(21.5f, 8f)
+                    if (icon == Icon.TEXT_BIGGER) { moveTo(19f, 5.5f); lineTo(19f, 10.5f) }
+                }, stroke)
             }
             Icon.SHAPES -> {
                 c.drawCircle(8.5f, 8.5f, 4.5f, stroke)
