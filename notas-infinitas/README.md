@@ -3,6 +3,15 @@
 App Android (Kotlin) de anotações à mão com **tela infinita na horizontal e na vertical**,
 pensado para a S Pen dos Galaxy.
 
+<p>
+  <img src="docs/screenshots/1-inicio.png" width="200" alt="Página inicial com pastas">
+  <img src="docs/screenshots/2-pasta.png" width="200" alt="Dentro de uma pasta">
+  <img src="docs/screenshots/4-editor.png" width="200" alt="Editor">
+  <img src="docs/screenshots/5-bandeja-canetas.png" width="200" alt="Bandeja de canetas">
+</p>
+
+As capturas em `docs/screenshots` são geradas pelo CI (Robolectric) a cada mudança.
+
 ## Como usar
 
 ### Pastas (página inicial)
@@ -16,7 +25,7 @@ pensado para a S Pen dos Galaxy.
 - **1 dedo** move a tela em qualquer direção; **2 dedos** dão zoom (5% a 800%).
 - Menu ⋮ → **Dedo: escreve** faz o dedo também escrever (aí 2 dedos movem).
 
-### Canetas (toque de novo na caneta para abrir o painel)
+### Canetas (toque de novo na caneta, ou na bolinha de cor, para abrir a bandeja)
 - **Caneta-tinteiro**, **Caneta**, **Lápis** (com textura), **Caligrafia** (bico chato
   inclinado), **Pincel** (pressão forte e pontas afinadas) e **Marca-texto** (translúcido).
 - Cada pincel lembra sua **espessura**, **opacidade** e **cor**.
