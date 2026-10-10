@@ -20,16 +20,17 @@ import kotlin.random.Random
 /** Tipos de pincel, inspirados nos do Samsung Notes. */
 enum class BrushType(
     val label: String,
+    val shortLabel: String,
     val icon: String,
     val defaultSize: Float,
     val defaultOpacity: Int,
 ) {
-    FOUNTAIN("Caneta-tinteiro", "🖋️", 5f, 100),
-    PEN("Caneta", "🖊️", 4f, 100),
-    PENCIL("Lápis", "✏️", 4f, 90),
-    CALLIGRAPHY("Caligrafia", "✒️", 8f, 100),
-    BRUSH("Pincel", "🖌️", 10f, 100),
-    HIGHLIGHTER("Marca-texto", "🖍️", 20f, 45);
+    FOUNTAIN("Caneta-tinteiro", "Tinteiro", "🖋️", 5f, 100),
+    PEN("Caneta", "Caneta", "🖊️", 4f, 100),
+    PENCIL("Lápis", "Lápis", "✏️", 4f, 90),
+    CALLIGRAPHY("Caligrafia", "Caligrafia", "✒️", 8f, 100),
+    BRUSH("Pincel", "Pincel", "🖌️", 10f, 100),
+    HIGHLIGHTER("Marca-texto", "Marca-texto", "🖍️", 20f, 45);
 
     companion object {
         fun byName(name: String?) = entries.firstOrNull { it.name == name }

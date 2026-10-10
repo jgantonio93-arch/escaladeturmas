@@ -177,10 +177,9 @@ class FoldersActivity : Activity() {
             LinearLayout.LayoutParams(dpi(54f), dpi(44f)).apply { marginEnd = dpi(14f) })
         val titles = vertical()
         titles.addView(title(folder.name, 28f).apply { isSingleLine = true })
-        val path = folder.parent?.let { "Pastas › " + Library.pathOf(it) } ?: "Pastas"
         val subs = Library.subfolders(folder.id)
         val notes = Library.notesIn(folder.id)
-        titles.addView(label("$path  ·  ${countText(subs.size, notes.size)}", 13f).apply { isSingleLine = true })
+        titles.addView(label((folder.parent?.let { Library.pathOf(it) + "  ·  " } ?: "") + countText(subs.size, notes.size), 13f).apply { isSingleLine = true })
         head.addView(titles, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         content.addView(head)
 
@@ -264,7 +263,7 @@ class FoldersActivity : Activity() {
             setOnLongClickListener { noteOptions(n); true }
         }
         card(18f, 1.5f, card)
-        val thumbBox = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#FAFAFC")) }
+        val thumbBox = FrameLayout(this).apply { setBackgroundColor(Color.WHITE) }
         val f = Library.thumbFile(n.id)
         val bmp = if (f.exists()) BitmapFactory.decodeFile(f.path) else null
         if (bmp != null) {

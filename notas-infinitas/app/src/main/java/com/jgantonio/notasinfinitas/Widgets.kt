@@ -51,7 +51,7 @@ class PenRackView(context: Context, private val colorOf: (BrushType) -> Int, pri
             val sel = t == selected
             labelPaint.color = if (sel) Ui.ACCENT else Ui.MUTED
             labelPaint.isFakeBoldText = sel
-            canvas.drawText(t.label, cx, labelY, labelPaint)
+            canvas.drawText(t.shortLabel, cx, labelY, labelPaint)
         }
     }
 

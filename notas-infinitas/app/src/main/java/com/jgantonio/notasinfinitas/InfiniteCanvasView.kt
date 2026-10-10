@@ -332,7 +332,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
         if (content == null) {
             scale = 1f
             offsetX = width * 0.1f
-            offsetY = height * 0.1f
+            offsetY = max(height * 0.1f, 96f * density)
         } else {
             val fit = min(width / (content.width() + 80f), height / (content.height() + 80f))
             scale = fit.coerceIn(MIN_SCALE, 1f)
@@ -406,8 +406,9 @@ class InfiniteCanvasView(context: Context) : View(context) {
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (!hasInitialPosition && w > 0) {
-            offsetX = w * 0.1f
-            offsetY = h * 0.1f
+            // Começa abaixo do dock de ferramentas, que flutua no topo.
+            offsetX = w * 0.08f
+            offsetY = max(h * 0.1f, 96f * density)
             hasInitialPosition = true
         }
     }
