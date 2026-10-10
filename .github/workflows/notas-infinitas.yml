@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   build:
@@ -19,6 +20,19 @@ jobs:
         working-directory: notas-infinitas
     steps:
       - uses: actions/checkout@v4
+
+      # O app é particular: enquanto o repositório estiver público, nada fica
+      # disponível para download (apaga versões publicadas e arquivos de builds).
+      - name: Proteger downloads (repositório público)
+        if: ${{ !github.event.repository.private }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release list --repo "$REPO" --limit 100 --json tagName --jq '.[].tagName | select(startswith("tonynotes-"))' \
+            | xargs -r -n1 gh release delete --repo "$REPO" --cleanup-tag -y
+          gh api "repos/$REPO/actions/artifacts" --paginate --jq '.artifacts[].id' \
+            | xargs -r -I{} gh api -X DELETE "repos/$REPO/actions/artifacts/{}"
 
       - uses: actions/setup-java@v4
         with:
@@ -33,6 +47,7 @@ jobs:
           ./gradlew assembleDebug --stacktrace
 
       - name: Publicar APK
+        if: ${{ github.event.repository.private }}
         uses: actions/upload-artifact@v4
         with:
           name: tonynotes-apk
@@ -41,11 +56,12 @@ jobs:
       - name: Testes de funcionamento
         run: ./gradlew testDebugUnitTest --tests "*FunctionalTest*"
 
-      # Só versões que passaram nos testes viram "Release". O link fixo
+      # Só versões que passaram nos testes viram "Release", e só com o repositório
+      # privado (o download fica restrito a quem tem acesso). O link fixo
       # https://github.com/<dono>/<repo>/releases/latest/download/TonyNotes.apk
       # sempre baixa a mais recente (é o link do botão do site).
       - name: Publicar versão (link fixo de download)
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        if: ${{ github.event.repository.private && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
