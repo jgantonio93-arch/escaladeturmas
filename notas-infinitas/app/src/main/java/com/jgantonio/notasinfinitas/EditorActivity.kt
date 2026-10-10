@@ -1,12 +1,13 @@
 package com.jgantonio.notasinfinitas
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
-import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.os.Bundle
@@ -15,24 +16,29 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
-import com.jgantonio.notasinfinitas.Ui.chip
-import com.jgantonio.notasinfinitas.Ui.choose
+import com.jgantonio.notasinfinitas.Ui.SheetItem
+import com.jgantonio.notasinfinitas.Ui.actionSheet
 import com.jgantonio.notasinfinitas.Ui.circle
-import com.jgantonio.notasinfinitas.Ui.confirm
-import com.jgantonio.notasinfinitas.Ui.divider
+import com.jgantonio.notasinfinitas.Ui.dp
 import com.jgantonio.notasinfinitas.Ui.dpi
 import com.jgantonio.notasinfinitas.Ui.horizontal
+import com.jgantonio.notasinfinitas.Ui.icon
+import com.jgantonio.notasinfinitas.Ui.iconButton
+import com.jgantonio.notasinfinitas.Ui.label
 import com.jgantonio.notasinfinitas.Ui.pill
+import com.jgantonio.notasinfinitas.Ui.pillButton
 import com.jgantonio.notasinfinitas.Ui.promptText
-import com.jgantonio.notasinfinitas.Ui.styleChip
+import com.jgantonio.notasinfinitas.Ui.ripple
+import com.jgantonio.notasinfinitas.Ui.switchRow
+import com.jgantonio.notasinfinitas.Ui.vertical
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -49,17 +55,20 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
     private lateinit var canvasView: InfiniteCanvasView
 
     private lateinit var titleView: TextView
-    private lateinit var undoButton: TextView
-    private lateinit var redoButton: TextView
-    private lateinit var penButton: TextView
-    private lateinit var eraserButton: TextView
-    private lateinit var selectButton: TextView
-    private lateinit var textButton: TextView
-    private lateinit var favoritesRow: LinearLayout
-    private lateinit var quickColors: LinearLayout
+    private lateinit var subtitleView: TextView
+    private lateinit var undoButton: View
+    private lateinit var redoButton: View
+    private lateinit var dock: LinearLayout
+    private lateinit var trayLayer: FrameLayout
     private lateinit var selectionBar: View
     private lateinit var selectionLabel: TextView
     private lateinit var zoomLabel: TextView
+
+    private val toolButtons = LinkedHashMap<InfiniteCanvasView.Tool, ImageView>()
+    private lateinit var penToolButton: ImageView
+    private lateinit var colorDot: ColorDot
+    private lateinit var favoritesBox: LinearLayout
+    private var openTray: String? = null
 
     private val main = Handler(Looper.getMainLooper())
     private val density get() = resources.displayMetrics.density
@@ -87,24 +96,40 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
             setBackgroundColor(Ui.SURFACE)
         }
         root.addView(buildTopBar())
-        root.addView(buildToolBar())
-        selectionBar = buildSelectionBar()
-        selectionBar.visibility = View.GONE
-        root.addView(selectionBar)
 
-        val holder = FrameLayout(this)
-        holder.addView(canvasView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        val stage = FrameLayout(this)
+        stage.addView(canvasView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
         zoomLabel = TextView(this).apply {
             textSize = 12f
+            typeface = Ui.MEDIUM
             setTextColor(Ui.MUTED)
-            setPadding(dpi(10f), dpi(4f), dpi(10f), dpi(4f))
-            background = pill(Color.parseColor("#E6FFFFFF"))
+            gravity = Gravity.CENTER
+            minHeight = dpi(32f)
+            setPadding(dpi(12f), 0, dpi(12f), 0)
+            background = ripple(pill(Color.parseColor("#F2FFFFFF")), pill(Color.WHITE, 0))
+            elevation = dp(2f)
             setOnClickListener { canvasView.recenter() }
         }
-        holder.addView(zoomLabel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END).apply {
-            setMargins(0, 0, dpi(12f), dpi(12f))
+        stage.addView(zoomLabel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply {
+            setMargins(dpi(14f), 0, 0, dpi(14f))
         })
-        root.addView(holder, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+
+        selectionBar = buildSelectionBar()
+        selectionBar.visibility = View.GONE
+        stage.addView(selectionBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+            bottomMargin = dpi(18f)
+        })
+
+        trayLayer = FrameLayout(this).apply { visibility = View.GONE }
+        stage.addView(trayLayer, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        dock = buildDock()
+        stage.addView(dock, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+            topMargin = dpi(10f)
+        })
+
+        root.addView(stage, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
 
         NoteStorage.load(Library.noteFile(note.id))?.let { canvasView.load(it) }
@@ -116,6 +141,15 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         if (::canvasView.isInitialized) save()
     }
 
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        when {
+            openTray != null -> closeTray()
+            canvasView.hasSelection -> canvasView.clearSelection()
+            else -> @Suppress("DEPRECATION") super.onBackPressed()
+        }
+    }
+
     private fun applyPrefs() {
         canvasView.fingerDraws = prefs.fingerDraws
         canvasView.autoShapes = prefs.autoShapes
@@ -125,144 +159,105 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         canvasView.eraserHighlighterOnly = prefs.eraserHighlighterOnly
     }
 
-    // ---- Barras ----------------------------------------------------------------
+    // ---- Barra superior ------------------------------------------------------------
 
     private fun buildTopBar(): View {
-        val bar = horizontal().apply { setPadding(dpi(4f), dpi(4f), dpi(8f), dpi(2f)) }
-        bar.addView(iconButton("←") { finish() })
-        titleView = TextView(this).apply {
-            textSize = 17f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setTextColor(Ui.INK)
-            isSingleLine = true
-            setPadding(dpi(6f), 0, dpi(6f), 0)
+        val bar = horizontal().apply {
+            setPadding(dpi(4f), dpi(6f), dpi(6f), dpi(6f))
+            setBackgroundColor(Ui.SURFACE)
+            elevation = dp(1f)
+        }
+        bar.addView(iconButton(Icon.BACK) { finish() })
+        val titles = vertical().apply {
+            setPadding(dpi(4f), 0, dpi(8f), 0)
+            background = ripple(null, Ui.run { rounded(Color.WHITE, 12f) })
             setOnClickListener { rename() }
         }
-        bar.addView(titleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        undoButton = iconButton("↶") { canvasView.undo() }
-        redoButton = iconButton("↷") { canvasView.redo() }
+        titleView = label("", 17f, Ui.INK, bold = true).apply { isSingleLine = true }
+        subtitleView = label("", 12f).apply { isSingleLine = true }
+        titles.addView(titleView)
+        titles.addView(subtitleView)
+        bar.addView(titles, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        undoButton = iconButton(Icon.UNDO) { canvasView.undo() }
+        redoButton = iconButton(Icon.REDO) { canvasView.redo() }
         bar.addView(undoButton)
         bar.addView(redoButton)
-        val more = iconButton("⋮") {}
-        more.setOnClickListener { showMenu(more) }
-        bar.addView(more)
+        bar.addView(iconButton(Icon.MORE) { showMoreMenu() })
         return bar
     }
 
-    private fun iconButton(text: String, onClick: () -> Unit) = TextView(this).apply {
-        this.text = text
-        textSize = 22f
-        gravity = Gravity.CENTER
-        setTextColor(Ui.INK)
-        minWidth = dpi(44f)
-        minHeight = dpi(44f)
+    // ---- Dock de ferramentas ------------------------------------------------------------
+
+    private fun toolButton(d: Drawable, onClick: () -> Unit) = ImageView(this).apply {
+        setImageDrawable(d)
+        scaleType = ImageView.ScaleType.CENTER
         setOnClickListener { onClick() }
+        layoutParams = LinearLayout.LayoutParams(dpi(46f), dpi(46f)).apply { setMargins(dpi(1f), 0, dpi(1f), 0) }
     }
 
-    private fun buildToolBar(): View {
-        val bar = horizontal().apply { setPadding(dpi(8f), dpi(4f), dpi(8f), dpi(6f)) }
-
-        penButton = chip("") {
-            if (canvasView.tool == InfiniteCanvasView.Tool.PEN) openPenPanel() else setTool(InfiniteCanvasView.Tool.PEN)
-        }
-        eraserButton = chip("🧽 Borracha") {
-            if (canvasView.tool == InfiniteCanvasView.Tool.ERASER) openEraserPanel() else setTool(InfiniteCanvasView.Tool.ERASER)
-        }
-        selectButton = chip("⬚ Seleção") { setTool(InfiniteCanvasView.Tool.SELECT) }
-        textButton = chip("T Texto") { setTool(InfiniteCanvasView.Tool.TEXT) }
-        bar.addView(penButton)
-        bar.addView(eraserButton)
-        bar.addView(selectButton)
-        bar.addView(textButton)
-        bar.addView(chip("🖼 Imagem") { pickImage() })
-        bar.addView(divider())
-
-        quickColors = horizontal()
-        bar.addView(quickColors)
-        bar.addView(divider())
-
-        favoritesRow = horizontal()
-        bar.addView(favoritesRow)
-
-        return HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            addView(bar)
-        }
+    private fun dockDivider() = View(this).apply {
+        setBackgroundColor(Ui.LINE)
+        layoutParams = LinearLayout.LayoutParams(dpi(1f), dpi(24f)).apply { setMargins(dpi(6f), 0, dpi(6f), 0) }
     }
 
-    private fun buildSelectionBar(): View {
+    private fun buildDock(): LinearLayout {
         val bar = horizontal().apply {
-            setPadding(dpi(12f), dpi(4f), dpi(8f), dpi(6f))
-            setBackgroundColor(Ui.ACCENT_SOFT)
+            setPadding(dpi(6f), dpi(5f), dpi(6f), dpi(5f))
+            background = pill(Ui.SURFACE, Color.parseColor("#EEF0F3"))
+            elevation = dp(8f)
+            isClickable = true
         }
-        selectionLabel = TextView(this).apply {
-            setTextColor(Color.parseColor("#123E8C"))
-            textSize = 14f
-            setPadding(0, 0, dpi(8f), 0)
+        penToolButton = toolButton(PenGlyphDrawable(canvasView.pen.type, canvasView.pen.color, dpi(30f), dp(1f))) {
+            if (canvasView.tool == InfiniteCanvasView.Tool.PEN) toggleTray("pen") else setTool(InfiniteCanvasView.Tool.PEN)
         }
-        bar.addView(selectionLabel)
-        bar.addView(chip("🗑 Excluir") { canvasView.deleteSelection() })
-        bar.addView(chip("⧉ Duplicar") { canvasView.duplicateSelection() })
-        bar.addView(chip("🎨 Cor") { recolorSelection() })
-        bar.addView(chip("✓ Concluir") { canvasView.clearSelection() })
-        return HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            addView(bar)
+        toolButtons[InfiniteCanvasView.Tool.PEN] = penToolButton
+        bar.addView(penToolButton)
+        toolButtons[InfiniteCanvasView.Tool.ERASER] = toolButton(icon(Icon.ERASER)) {
+            if (canvasView.tool == InfiniteCanvasView.Tool.ERASER) toggleTray("eraser") else setTool(InfiniteCanvasView.Tool.ERASER)
+        }.also { bar.addView(it) }
+        toolButtons[InfiniteCanvasView.Tool.SELECT] = toolButton(icon(Icon.LASSO)) { setTool(InfiniteCanvasView.Tool.SELECT) }.also { bar.addView(it) }
+        toolButtons[InfiniteCanvasView.Tool.TEXT] = toolButton(icon(Icon.TEXT)) { setTool(InfiniteCanvasView.Tool.TEXT) }.also { bar.addView(it) }
+        bar.addView(toolButton(icon(Icon.IMAGE)) { closeTray(); pickImage() })
+        bar.addView(dockDivider())
+        colorDot = ColorDot(this, canvasView.pen.color, false) {
+            if (canvasView.tool != InfiniteCanvasView.Tool.PEN) setTool(InfiniteCanvasView.Tool.PEN)
+            toggleTray("pen")
         }
+        bar.addView(colorDot, LinearLayout.LayoutParams(dpi(30f), dpi(30f)).apply { setMargins(dpi(6f), 0, dpi(6f), 0) })
+        favoritesBox = horizontal()
+        bar.addView(favoritesBox)
+        return bar
     }
 
     private fun refresh() {
         titleView.text = note.title
+        subtitleView.text = Library.pathOf(note.folder)
         val tool = canvasView.tool
         val pen = canvasView.pen
-        penButton.text = "${pen.type.icon} ${pen.type.label}"
-        penButton.styleChip(tool == InfiniteCanvasView.Tool.PEN)
-        eraserButton.styleChip(tool == InfiniteCanvasView.Tool.ERASER)
-        selectButton.styleChip(tool == InfiniteCanvasView.Tool.SELECT)
-        textButton.styleChip(tool == InfiniteCanvasView.Tool.TEXT)
-        undoButton.alpha = if (canvasView.canUndo) 1f else 0.3f
-        redoButton.alpha = if (canvasView.canRedo) 1f else 0.3f
-        zoomLabel.text = "${canvasView.zoomPercent}%"
-
-        // Cores rápidas da caneta atual
-        quickColors.removeAllViews()
-        val palette = if (pen.type == BrushType.HIGHLIGHTER) PenPrefs.HIGHLIGHT_COLORS else
-            listOf(PenPrefs.INK_COLORS[0], PenPrefs.INK_COLORS[8], PenPrefs.INK_COLORS[3], PenPrefs.INK_COLORS[6])
-        val shown = (palette + prefs.customColors.take(2)).distinct().let {
-            if (pen.color in it) it else listOf(pen.color) + it
+        penToolButton.setImageDrawable(PenGlyphDrawable(pen.type, pen.color, dpi(30f), dp(1f)))
+        for ((t, b) in toolButtons) {
+            val sel = t == tool
+            b.background = if (sel) circle(Ui.ACCENT_SOFT, 0, 0f) else ripple(null, circle(Color.WHITE, 0, 0f))
+            (b.drawable as? IconDrawable)?.color = if (sel) Ui.ACCENT else Ui.INK
         }
-        for (c in shown) {
-            val selected = tool == InfiniteCanvasView.Tool.PEN && c == pen.color
-            quickColors.addView(Panels.swatch(this, c, selected) {
-                setPen(canvasView.pen.copy(color = c))
-            }.apply {
-                layoutParams = LinearLayout.LayoutParams(dpi(28f), dpi(28f)).apply {
-                    setMargins(dpi(3f), 0, dpi(3f), 0)
-                }
+        colorDot.visibility = if (tool == InfiniteCanvasView.Tool.PEN) View.VISIBLE else View.GONE
+        colorDot.color = pen.color
+
+        favoritesBox.removeAllViews()
+        val favs = prefs.favorites.asReversed().take(3)
+        if (favs.isNotEmpty()) favoritesBox.addView(dockDivider())
+        for (f in favs) {
+            val sel = tool == InfiniteCanvasView.Tool.PEN && f == pen
+            favoritesBox.addView(toolButton(PenGlyphDrawable(f.type, f.color, dpi(28f), dp(1f))) { setPen(f) }.apply {
+                background = if (sel) circle(Ui.ACCENT_SOFT, 0, 0f) else ripple(null, circle(Color.WHITE, 0, 0f))
+                layoutParams = LinearLayout.LayoutParams(dpi(42f), dpi(42f))
             })
         }
-
-        // Favoritos
-        favoritesRow.removeAllViews()
-        for (f in prefs.favorites) {
-            val chip = chip("${f.type.icon} ${f.size.toInt()}") { setPen(f) }
-            chip.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                circle(f.color, Ui.BORDER, 1f).apply { setSize(dpi(14f), dpi(14f)) }, null, null, null,
-            )
-            chip.compoundDrawablePadding = dpi(6f)
-            chip.styleChip(tool == InfiniteCanvasView.Tool.PEN && pen == f)
-            chip.setOnLongClickListener {
-                confirm("Remover favorito?", "${f.type.label}, espessura ${f.size.toInt()}", "Remover") {
-                    prefs.favorites = prefs.favorites.filter { it != f }
-                    refresh()
-                }
-                true
-            }
-            favoritesRow.addView(chip)
-        }
+        onStateChanged()
     }
 
     private fun setTool(tool: InfiniteCanvasView.Tool) {
+        closeTray()
         canvasView.tool = tool
         refresh()
     }
@@ -272,68 +267,95 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         prefs.currentType = p.type
         canvasView.pen = p
         canvasView.tool = InfiniteCanvasView.Tool.PEN
+        closeTray()
         refresh()
     }
 
-    private fun openPenPanel() {
-        Panels.showPen(this, prefs, canvasView.pen, onChange = { p ->
-            canvasView.pen = p
-            applyPrefs()
-            refresh()
-        }, onFavoritesChanged = { refresh() })
+    // ---- Bandejas ----------------------------------------------------------------------
+
+    private fun toggleTray(which: String) {
+        if (openTray == which) closeTray() else showTray(which)
     }
 
-    private fun openEraserPanel() {
-        Panels.showEraser(this, prefs, onChange = { applyPrefs() }, onClearAll = { canvasView.clearAll() })
-    }
+    fun openPenTray() = showTray("pen")
+    fun openEraserTray() = showTray("eraser")
 
-    private fun recolorSelection() {
-        val options = PenPrefs.INK_COLORS + prefs.customColors
-        val names = listOf("Preto", "Cinza", "Branco", "Vermelho", "Laranja", "Amarelo", "Verde", "Turquesa",
-            "Azul", "Azul-marinho", "Roxo", "Rosa", "Marrom") + prefs.customColors.map { String.format("#%06X", it and 0xFFFFFF) }
-        choose("Mudar cor da seleção", names + "Personalizada…") { i ->
-            if (i < options.size) {
-                canvasView.recolorSelection(options[i])
-            } else {
-                ColorPicker.show(this, canvasView.pen.color) { c ->
-                    prefs.addCustomColor(c)
-                    canvasView.recolorSelection(c)
-                }
+    @SuppressLint("ClickableViewAccessibility")
+    private fun showTray(which: String) {
+        trayLayer.removeAllViews()
+        // Toque fora da bandeja fecha a bandeja (e não risca a nota).
+        trayLayer.addView(View(this).apply {
+            setOnTouchListener { _, e ->
+                if (e.actionMasked == MotionEvent.ACTION_DOWN) closeTray()
+                true
             }
+        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        val tray: View = when (which) {
+            "pen" -> PenTray(this, prefs, canvasView.pen, onChange = { p ->
+                canvasView.pen = p
+                applyPrefs()
+                refresh()
+            }, onFavoritesChanged = { refresh() })
+            else -> EraserTray(this, prefs, onChange = { applyPrefs() }, onClearAll = {
+                canvasView.clearAll()
+                closeTray()
+            })
         }
+        val width = min(resources.displayMetrics.widthPixels - dpi(24f), dpi(440f))
+        trayLayer.addView(tray, FrameLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+            topMargin = dpi(74f)
+        })
+        trayLayer.visibility = View.VISIBLE
+        openTray = which
+    }
+
+    private fun closeTray() {
+        trayLayer.visibility = View.GONE
+        trayLayer.removeAllViews()
+        openTray = null
+    }
+
+    // ---- Barra de seleção ----------------------------------------------------------------
+
+    private fun buildSelectionBar(): View {
+        val bar = horizontal().apply {
+            setPadding(dpi(14f), dpi(4f), dpi(6f), dpi(4f))
+            background = pill(Ui.SURFACE, Color.parseColor("#EEF0F3"))
+            elevation = dp(10f)
+            isClickable = true
+        }
+        selectionLabel = label("", 13f, Ui.ACCENT, bold = true).apply { setPadding(0, 0, dpi(6f), 0) }
+        bar.addView(selectionLabel)
+        bar.addView(pillButton(Icon.TRASH, "Excluir") { canvasView.deleteSelection() })
+        bar.addView(pillButton(Icon.COPY, "Duplicar") { canvasView.duplicateSelection() })
+        bar.addView(pillButton(Icon.PALETTE, "Cor") {
+            Panels.showColorChoice(this, prefs, canvasView.pen.color) { canvasView.recolorSelection(it) }
+        })
+        bar.addView(iconButton(Icon.CHECK, Ui.ACCENT, 40f) { canvasView.clearSelection() })
+        return bar
     }
 
     // ---- Menu ⋮ --------------------------------------------------------------------
 
-    private fun showMenu(anchor: View) {
-        val menu = PopupMenu(this, anchor)
-        menu.menu.add(0, 1, 0, "Plano de fundo…")
-        menu.menu.add(0, 2, 1, "Exportar como imagem (PNG)")
-        menu.menu.add(0, 3, 2, "Exportar como PDF")
-        menu.menu.add(0, 4, 3, if (prefs.fingerDraws) "Dedo: escreve ✓" else "Dedo: só move a tela")
-        menu.menu.add(0, 5, 4, "Centralizar conteúdo")
-        menu.menu.add(0, 6, 5, "Renomear nota")
-        menu.menu.add(0, 7, 6, "Mover para pasta…")
-        menu.setOnMenuItemClickListener {
-            when (it.itemId) {
-                1 -> Panels.showBackground(this, canvasView.pageStyle, canvasView.paperColor) { s, c ->
+    fun showMoreMenu() {
+        closeTray()
+        val finger = switchRow(Icon.TOUCH, "Escrever com o dedo", prefs.fingerDraws) {
+            prefs.fingerDraws = it
+            applyPrefs()
+        }
+        actionSheet(null, listOf(
+            SheetItem(Icon.PAGE, "Plano de fundo") {
+                Panels.showBackground(this, canvasView.pageStyle, canvasView.paperColor) { s, c ->
                     canvasView.pageStyle = s
                     canvasView.paperColor = c
                 }
-                2 -> exportPng()
-                3 -> exportPdf()
-                4 -> {
-                    prefs.fingerDraws = !prefs.fingerDraws
-                    applyPrefs()
-                    toast(if (prefs.fingerDraws) "Agora o dedo também escreve. Use 2 dedos para mover." else "O dedo agora só move a tela.")
-                }
-                5 -> canvasView.recenter()
-                6 -> rename()
-                7 -> moveToFolder()
-            }
-            true
-        }
-        menu.show()
+            },
+            SheetItem(Icon.EXPORT, "Exportar como imagem") { exportPng() },
+            SheetItem(Icon.PDF, "Exportar como PDF") { exportPdf() },
+            SheetItem(Icon.CENTER, "Centralizar conteúdo") { canvasView.recenter() },
+            SheetItem(Icon.EDIT, "Renomear nota") { rename() },
+            SheetItem(Icon.MOVE, "Mover para outra pasta") { moveToFolder() },
+        ), header = finger)
     }
 
     private fun rename() {
@@ -346,10 +368,12 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
     }
 
     private fun moveToFolder() {
-        val tree = Library.tree()
-        choose("Mover para", tree.map { (f, depth) -> "    ".repeat(depth) + "📁 " + f.name }) { i ->
-            Library.updateNote(note, folder = tree[i].first.id)
-            toast("Nota movida para ${tree[i].first.name}")
+        Pickers.folder(this, "Mover para", allowRoot = false, exclude = null, current = note.folder) { target ->
+            if (target != null) {
+                Library.updateNote(note, folder = target)
+                refresh()
+                toast("Nota movida para ${Library.folder(target)?.name}")
+            }
         }
     }
 
@@ -396,7 +420,10 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
             val result = try { importImage(uri) } catch (e: Exception) { null }
             main.post {
                 if (result == null) toast("Não foi possível abrir a imagem.")
-                else canvasView.addImage(result.first, result.second, result.third)
+                else {
+                    canvasView.addImage(result.first, result.second, result.third)
+                    refresh()
+                }
             }
         }
     }

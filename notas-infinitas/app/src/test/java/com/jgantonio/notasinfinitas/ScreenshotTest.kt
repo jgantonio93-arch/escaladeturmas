@@ -1,0 +1,202 @@
+package com.jgantonio.notasinfinitas
+
+import android.app.Activity
+import android.app.Dialog
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.view.View
+import androidx.test.core.app.ApplicationProvider
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowDialog
+import org.robolectric.shadows.ShadowLooper
+import java.io.File
+import java.io.FileOutputStream
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.min
+import kotlin.math.sin
+
+/**
+ * Gera capturas de tela do app (Robolectric com renderização nativa) em docs/screenshots.
+ * Não é um teste de comportamento: serve para revisar o visual sem um aparelho.
+ */
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+class ScreenshotTest {
+
+    private val outDir = File(System.getProperty("shots.dir") ?: "build/screenshots").apply { mkdirs() }
+
+    @Test
+    fun captureScreens() {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        Library.init(app)
+        val (escola, nota) = seed(app)
+
+        val home = Robolectric.buildActivity(FoldersActivity::class.java).setup().get()
+        save(snap(home), "1-inicio")
+
+        val folder = Robolectric.buildActivity(FoldersActivity::class.java,
+            Intent(app, FoldersActivity::class.java).putExtra(FoldersActivity.EXTRA_FOLDER, escola.id)).setup().get()
+        save(snap(folder), "2-pasta")
+
+        home.editFolder(null, null)
+        save(withDialog(home), "3-nova-pasta")
+
+        val editor = Robolectric.buildActivity(EditorActivity::class.java,
+            Intent(app, EditorActivity::class.java).putExtra(EditorActivity.EXTRA_NOTE, nota.id)).setup().get()
+        save(snap(editor), "4-editor")
+
+        editor.openPenTray()
+        save(snap(editor), "5-bandeja-canetas")
+
+        editor.openEraserTray()
+        save(snap(editor), "6-bandeja-borracha")
+
+        editor.showMoreMenu()
+        save(withDialog(editor), "7-menu")
+    }
+
+    // ---- Captura ---------------------------------------------------------------------
+
+    private fun layoutRoot(v: View, w: Int, h: Int) {
+        v.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY))
+        v.layout(0, 0, w, h)
+    }
+
+    private fun snap(a: Activity): Bitmap {
+        ShadowLooper.idleMainLooper()
+        val dm = a.resources.displayMetrics
+        val decor = a.window.decorView
+        layoutRoot(decor, dm.widthPixels, dm.heightPixels)
+        val bmp = Bitmap.createBitmap(dm.widthPixels, dm.heightPixels, Bitmap.Config.ARGB_8888)
+        decor.draw(Canvas(bmp))
+        return bmp
+    }
+
+    /** Tela da atividade escurecida + o painel inferior aberto por cima. */
+    private fun withDialog(a: Activity): Bitmap {
+        val base = snap(a)
+        val dialog: Dialog = ShadowDialog.getLatestDialog() ?: return base
+        val dm = a.resources.displayMetrics
+        val content = (dialog.window!!.decorView as android.view.ViewGroup)
+        val w = min(dm.widthPixels, (600 * dm.density).toInt())
+        content.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(dm.heightPixels, View.MeasureSpec.AT_MOST))
+        content.layout(0, 0, w, content.measuredHeight)
+        val c = Canvas(base)
+        c.drawColor(Color.argb(82, 0, 0, 0))
+        c.save()
+        c.translate((dm.widthPixels - w) / 2f, (dm.heightPixels - content.measuredHeight).toFloat())
+        content.draw(c)
+        c.restore()
+        dialog.dismiss()
+        return base
+    }
+
+    private fun save(b: Bitmap, name: String) {
+        FileOutputStream(File(outDir, "$name.png")).use { b.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        println("captura: $name.png ${b.width}x${b.height}")
+    }
+
+    // ---- Dados de exemplo ------------------------------------------------------------
+
+    private fun seed(app: android.content.Context): Pair<Folder, NoteInfo> {
+        Library.folders.toList().forEach { Library.deleteFolder(it.id) }
+        val c = Library.folderColors
+        val escola = Library.createFolder("Escola", c[5], null)
+        Library.createFolder("Trabalho", c[1], null)
+        Library.createFolder("Ideias", c[4], null)
+        Library.createFolder("Pessoal", c[7], null)
+        Library.createFolder("Receitas", c[0], null)
+        Library.createFolder("Física", c[6], escola.id)
+        Library.createFolder("Matemática", c[3], escola.id)
+
+        val unit = app.resources.displayMetrics.density * 0.5f
+        val ink = Color.parseColor("#1B1B1F")
+        val blue = Color.parseColor("#1F5FD1")
+        val red = Color.parseColor("#D7263D")
+
+        val aula = Library.createNote(escola.id, "Aula de física")
+        writeNote(app, aula, listOf(
+            TextElement("Leis de Newton", 40f, 30f, 30f * unit * 2, ink),
+            handwriting(PenSettings(BrushType.FOUNTAIN, ink, 5f, 100), unit, 40f, 150f, 520f, 3),
+            stroke(PenSettings(BrushType.HIGHLIGHTER, Color.parseColor("#FFE600"), 22f, 45), unit,
+                (0..30).map { 40f + it * 14f to 182f + sin(it / 5f) }),
+            handwriting(PenSettings(BrushType.PEN, blue, 4f, 100), unit, 40f, 300f, 420f, 2),
+            circle(PenSettings(BrushType.PEN, red, 4f, 100), unit, 760f, 230f, 90f, 60f),
+            stroke(PenSettings(BrushType.BRUSH, red, 8f, 100), unit, (0..30).map { 640f + it * 5f to 380f - it * 3.5f }),
+            handwriting(PenSettings(BrushType.PENCIL, Color.parseColor("#5F6368"), 5f, 90), unit, 620f, 420f, 360f, 2),
+        ))
+        val lista = Library.createNote(escola.id, "Lista de exercícios")
+        writeNote(app, lista, listOf(
+            handwriting(PenSettings(BrushType.PEN, ink, 4f, 100), unit, 30f, 40f, 500f, 6),
+        ))
+        val mapa = Library.createNote(escola.id, "Mapa mental")
+        writeNote(app, mapa, listOf(
+            circle(PenSettings(BrushType.PEN, blue, 4f, 100), unit, 300f, 200f, 110f, 60f),
+            circle(PenSettings(BrushType.PEN, red, 4f, 100), unit, 40f, 40f, 70f, 40f),
+            circle(PenSettings(BrushType.PEN, Color.parseColor("#1E9E5A"), 4f, 100), unit, 560f, 380f, 80f, 45f),
+            stroke(PenSettings(BrushType.PEN, ink, 3f, 100), unit, listOf(110f to 70f, 210f to 160f)),
+            stroke(PenSettings(BrushType.PEN, ink, 3f, 100), unit, listOf(390f to 240f, 500f to 350f)),
+            handwriting(PenSettings(BrushType.CALLIGRAPHY, ink, 7f, 100), unit, 230f, 190f, 140f, 1),
+        ))
+        Library.createNote(escola.id, "Nota em branco")
+        val ideia = Library.createNote(Library.folders.first { it.name == "Ideias" }.id, "App de notas")
+        writeNote(app, ideia, listOf(
+            handwriting(PenSettings(BrushType.BRUSH, Color.parseColor("#8E44AD"), 6f, 100), unit, 30f, 40f, 420f, 3),
+        ))
+        // A nota principal fica como a mais recente.
+        Library.updateNote(aula, touch = true)
+        return escola to aula
+    }
+
+    private fun writeNote(app: android.content.Context, n: NoteInfo, elements: List<Element>) {
+        val data = NoteData(elements, ViewState(60f, 80f, 1.15f), PageStyle.DOTS, Color.WHITE)
+        NoteStorage.save(Library.noteFile(n.id), data)
+        val view = InfiniteCanvasView(app)
+        view.load(data)
+        view.renderToBitmap(480, 360, 1f)?.let { b ->
+            Library.thumbFile(n.id).apply { parentFile?.mkdirs() }.outputStream().use { b.compress(Bitmap.CompressFormat.PNG, 90, it) }
+        }
+    }
+
+    private fun stroke(pen: PenSettings, unit: Float, pts: List<Pair<Float, Float>>): StrokeElement {
+        val b = StrokeBuilder(pen, unit)
+        pts.forEachIndexed { i, (x, y) ->
+            val p = 0.45f + 0.5f * sin(i / pts.size.toFloat() * PI).toFloat()
+            b.add(x, y, p, 0.3f)
+        }
+        return b.build()
+    }
+
+    private fun circle(pen: PenSettings, unit: Float, cx: Float, cy: Float, rx: Float, ry: Float) =
+        stroke(pen, unit, (0..64).map { cx + rx * cos(it / 64.0 * 2 * PI).toFloat() to cy + ry * sin(it / 64.0 * 2 * PI).toFloat() })
+
+    /** Linhas de "letra cursiva" (laços), para parecer escrita à mão. */
+    private fun handwriting(pen: PenSettings, unit: Float, x0: Float, y0: Float, width: Float, lines: Int): StrokeElement {
+        val b = StrokeBuilder(pen, unit)
+        val rnd = java.util.Random(pen.color.toLong() + lines)
+        for (l in 0 until lines) {
+            var x = x0
+            val y = y0 + l * 48f
+            val end = x0 + width * (0.75f + rnd.nextFloat() * 0.25f)
+            var t = 0f
+            while (x < end) {
+                val h = 10f + rnd.nextFloat() * 10f
+                val px = x + 6f * cos(t)
+                val py = y - h * (0.5f + 0.5f * sin(t))
+                b.add(px, py, 0.4f + 0.5f * ((sin(t * 0.7f) + 1f) / 2f), 0.3f)
+                t += 0.55f
+                x += 2.1f
+            }
+        }
+        return b.build()
+    }
+}

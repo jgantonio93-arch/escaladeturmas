@@ -1,12 +1,14 @@
 package com.jgantonio.notasinfinitas
 
-import android.app.AlertDialog
 import android.app.Dialog
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -15,70 +17,75 @@ import android.view.Window
 import android.view.WindowManager
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 
-/** Pequenos utilitários para montar a interface em código (sem XML). */
+/** Sistema visual do app (cores, tipografia e componentes), montado em código. */
 object Ui {
-    val INK = Color.parseColor("#1B1B1F")
-    val MUTED = Color.parseColor("#5F6B7A")
-    val ACCENT = Color.parseColor("#1F5FD1")
-    val ACCENT_SOFT = Color.parseColor("#DCE7FA")
-    val BORDER = Color.parseColor("#DDE1E7")
-    val SURFACE = Color.parseColor("#F4F5F7")
+    val BG = Color.parseColor("#F4F5F8")
+    val SURFACE = Color.WHITE
+    val INK = Color.parseColor("#16181D")
+    val MUTED = Color.parseColor("#6B7280")
+    val LINE = Color.parseColor("#E5E7EB")
+    val ACCENT = Color.parseColor("#2F6BFF")
+    val ACCENT_SOFT = Color.parseColor("#E8EFFF")
+    val DANGER = Color.parseColor("#E5484D")
+    val FIELD = Color.parseColor("#F1F3F6")
+
+    val MEDIUM: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+    val BOLD: Typeface = Typeface.create("sans-serif", Typeface.BOLD)
 
     fun Context.dp(v: Float) = v * resources.displayMetrics.density
     fun Context.dpi(v: Float) = (v * resources.displayMetrics.density).toInt()
 
-    fun Context.pill(fill: Int, stroke: Int = BORDER, radiusDp: Float = 18f) = GradientDrawable().apply {
+    // ---- Fundos ------------------------------------------------------------------
+
+    fun Context.rounded(fill: Int, radiusDp: Float, stroke: Int = 0, strokeDp: Float = 1f) = GradientDrawable().apply {
         shape = GradientDrawable.RECTANGLE
         cornerRadius = dp(radiusDp)
         setColor(fill)
-        setStroke(dpi(1f), stroke)
+        if (stroke != 0) setStroke(dpi(strokeDp), stroke)
     }
+
+    fun Context.pill(fill: Int, stroke: Int = LINE, radiusDp: Float = 100f) = rounded(fill, radiusDp, stroke)
 
     fun Context.circle(fill: Int, stroke: Int, strokeDp: Float) = GradientDrawable().apply {
         shape = GradientDrawable.OVAL
         setColor(fill)
-        setStroke(dpi(strokeDp), stroke)
+        if (stroke != 0) setStroke(dpi(strokeDp), stroke)
     }
 
-    fun Context.chip(text: String, onClick: () -> Unit) = TextView(this).apply {
-        this.text = text
-        textSize = 14f
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        gravity = Gravity.CENTER
-        minHeight = dpi(38f)
-        setPadding(dpi(12f), 0, dpi(12f), 0)
-        setTextColor(INK)
-        background = pill(Color.WHITE)
-        setOnClickListener { onClick() }
-        layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-        ).apply { setMargins(dpi(2f), 0, dpi(2f), 0) }
+    /** Efeito de toque (ripple) por cima de um fundo. */
+    fun ripple(content: Drawable?, mask: Drawable?, color: Int = Color.parseColor("#1A000000")) =
+        RippleDrawable(ColorStateList.valueOf(color), content, mask)
+
+    fun Context.card(radiusDp: Float = 20f, elevationDp: Float = 1.5f, view: View) {
+        view.background = ripple(rounded(SURFACE, radiusDp), rounded(Color.WHITE, radiusDp))
+        view.elevation = dp(elevationDp)
+        view.clipToOutline = true
     }
 
-    fun TextView.styleChip(selected: Boolean, enabled: Boolean = true) {
-        isEnabled = enabled
-        alpha = if (enabled) 1f else 0.35f
-        background = context.pill(if (selected) ACCENT_SOFT else Color.WHITE, if (selected) ACCENT else BORDER)
-        setTextColor(if (selected) Color.parseColor("#123E8C") else INK)
-    }
+    // ---- Texto -------------------------------------------------------------------
 
     fun Context.label(text: String, sizeSp: Float = 13f, color: Int = MUTED, bold: Boolean = false) = TextView(this).apply {
         this.text = text
         textSize = sizeSp
         setTextColor(color)
-        if (bold) typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        if (bold) typeface = MEDIUM
     }
 
-    fun Context.divider() = View(this).apply {
-        setBackgroundColor(Color.parseColor("#D5DAE1"))
-        layoutParams = LinearLayout.LayoutParams(dpi(1f), dpi(26f)).apply {
-            setMargins(dpi(6f), 0, dpi(6f), 0)
-        }
+    fun Context.title(text: String, sizeSp: Float) = TextView(this).apply {
+        this.text = text
+        textSize = sizeSp
+        setTextColor(INK)
+        typeface = BOLD
+        letterSpacing = -0.01f
     }
+
+    // ---- Layouts -----------------------------------------------------------------
 
     fun Context.vertical(paddingDp: Float = 0f) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
@@ -91,28 +98,168 @@ object Ui {
         gravity = Gravity.CENTER_VERTICAL
     }
 
-    /** Linha de itens que quebra automaticamente (como um "flow layout"). */
-    fun Context.wrapRow(children: List<View>, perRow: Int): LinearLayout {
-        val col = vertical()
-        var row: LinearLayout? = null
-        children.forEachIndexed { i, v ->
-            if (i % perRow == 0) {
-                row = horizontal().also { col.addView(it) }
-            }
-            row!!.addView(v)
-        }
-        return col
+    fun Context.space(wDp: Float, hDp: Float) = View(this).apply {
+        layoutParams = LinearLayout.LayoutParams(dpi(wDp), dpi(hDp))
     }
 
-    /** Painel que sobe de baixo da tela, com cantos arredondados. */
-    fun Context.bottomSheet(content: View): Dialog {
+    fun weightSpace(context: Context) = View(context).apply {
+        layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+    }
+
+    // ---- Ícones e botões ---------------------------------------------------------
+
+    fun Context.icon(icon: Icon, color: Int = INK, sizeDp: Float = 24f, strokeDp: Float = 1.8f) =
+        IconDrawable(icon, color, dpi(sizeDp), dp(strokeDp))
+
+    /** Botão redondo só com ícone (44dp). */
+    fun Context.iconButton(icon: Icon, color: Int = INK, sizeDp: Float = 44f, onClick: () -> Unit) = ImageView(this).apply {
+        setImageDrawable(icon(icon, color))
+        scaleType = ImageView.ScaleType.CENTER
+        background = ripple(null, circle(Color.WHITE, 0, 0f))
+        setOnClickListener { onClick() }
+        layoutParams = LinearLayout.LayoutParams(dpi(sizeDp), dpi(sizeDp))
+        contentDescription = icon.name
+    }
+
+    fun Context.primaryButton(text: String, color: Int = ACCENT, onClick: () -> Unit) = TextView(this).apply {
+        this.text = text
+        textSize = 15f
+        typeface = MEDIUM
+        gravity = Gravity.CENTER
+        setTextColor(Color.WHITE)
+        minHeight = dpi(48f)
+        setPadding(dpi(22f), 0, dpi(22f), 0)
+        background = ripple(pill(color, 0), pill(Color.WHITE, 0), Color.parseColor("#33FFFFFF"))
+        setOnClickListener { onClick() }
+    }
+
+    fun Context.secondaryButton(text: String, onClick: () -> Unit) = TextView(this).apply {
+        this.text = text
+        textSize = 15f
+        typeface = MEDIUM
+        gravity = Gravity.CENTER
+        setTextColor(INK)
+        minHeight = dpi(48f)
+        setPadding(dpi(22f), 0, dpi(22f), 0)
+        background = ripple(pill(FIELD, 0), pill(Color.WHITE, 0))
+        setOnClickListener { onClick() }
+    }
+
+    /** Botão em pílula com ícone e texto (barra de seleção, ações rápidas). */
+    fun Context.pillButton(icon: Icon?, text: String, onClick: () -> Unit) = TextView(this).apply {
+        this.text = text
+        textSize = 14f
+        typeface = MEDIUM
+        gravity = Gravity.CENTER
+        setTextColor(INK)
+        minHeight = dpi(40f)
+        setPadding(dpi(14f), 0, dpi(16f), 0)
+        if (icon != null) {
+            setCompoundDrawablesRelativeWithIntrinsicBounds(icon(icon, INK, 20f), null, null, null)
+            compoundDrawablePadding = dpi(8f)
+        }
+        background = ripple(pill(Color.TRANSPARENT, 0), pill(Color.WHITE, 0))
+        setOnClickListener { onClick() }
+    }
+
+    fun Context.textField(initial: String, hint: String, multiLine: Boolean = false) = EditText(this).apply {
+        setText(initial)
+        this.hint = hint
+        textSize = 16f
+        setTextColor(INK)
+        setHintTextColor(MUTED)
+        background = rounded(FIELD, 14f)
+        setPadding(dpi(16f), dpi(14f), dpi(16f), dpi(14f))
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or
+            (if (multiLine) InputType.TYPE_TEXT_FLAG_MULTI_LINE else 0)
+        if (multiLine) {
+            minLines = 3
+            maxLines = 8
+            gravity = Gravity.TOP or Gravity.START
+        } else {
+            isSingleLine = true
+        }
+    }
+
+    // ---- Controles ---------------------------------------------------------------
+
+    /** Controle segmentado (ex.: "Traço inteiro | Por área"). */
+    fun Context.segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit): LinearLayout {
+        val box = horizontal().apply {
+            background = pill(FIELD, 0)
+            setPadding(dpi(4f), dpi(4f), dpi(4f), dpi(4f))
+        }
+        val items = ArrayList<TextView>()
+        fun style(sel: Int) = items.forEachIndexed { i, t ->
+            t.background = if (i == sel) pill(Color.WHITE, 0) else null
+            t.elevation = if (i == sel) dp(1f) else 0f
+            t.setTextColor(if (i == sel) INK else MUTED)
+        }
+        options.forEachIndexed { i, o ->
+            val t = TextView(this).apply {
+                text = o
+                textSize = 14f
+                typeface = MEDIUM
+                gravity = Gravity.CENTER
+                minHeight = dpi(38f)
+                setOnClickListener { style(i); onSelect(i) }
+            }
+            items.add(t)
+            box.addView(t, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        style(selected)
+        return box
+    }
+
+    /** Linha com ícone, texto e chave liga/desliga. */
+    @Suppress("UseSwitchCompatOrMaterialCode")
+    fun Context.switchRow(icon: Icon, text: String, checked: Boolean, onChange: (Boolean) -> Unit): LinearLayout {
+        val row = horizontal().apply { minimumHeight = dpi(52f) }
+        row.addView(ImageView(this).apply { setImageDrawable(icon(icon, MUTED, 22f)) },
+            LinearLayout.LayoutParams(dpi(24f), dpi(24f)).apply { marginEnd = dpi(14f) })
+        row.addView(label(text, 15f, INK), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val sw = Switch(this).apply {
+            isChecked = checked
+            thumbTintList = ColorStateList(
+                arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                intArrayOf(Color.WHITE, Color.WHITE),
+            )
+            trackTintList = ColorStateList(
+                arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                intArrayOf(ACCENT, Color.parseColor("#C9CED6")),
+            )
+            setOnCheckedChangeListener { _, v -> onChange(v) }
+        }
+        row.addView(sw)
+        row.setOnClickListener { sw.toggle() }
+        return row
+    }
+
+    // ---- Painéis inferiores ------------------------------------------------------------
+
+    /** Painel que sobe de baixo, com alça e título. [build] preenche o conteúdo. */
+    fun Context.sheet(title: String?, build: (LinearLayout, Dialog) -> Unit): Dialog {
         val dialog = Dialog(this)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val content = vertical().apply { setPadding(dpi(20f), dpi(10f), dpi(20f), dpi(20f)) }
+        content.addView(View(this).apply { background = pill(Color.parseColor("#D5D9E0"), 0) },
+            LinearLayout.LayoutParams(dpi(36f), dpi(4f)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                bottomMargin = dpi(14f)
+            })
+        if (title != null) {
+            content.addView(title(title, 19f), LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dpi(12f) })
+        }
+        build(content, dialog)
         val scroll = ScrollView(this).apply {
             background = GradientDrawable().apply {
-                setColor(Color.WHITE)
-                cornerRadii = floatArrayOf(dp(20f), dp(20f), dp(20f), dp(20f), 0f, 0f, 0f, 0f)
+                setColor(SURFACE)
+                val r = dp(28f)
+                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
             }
+            isVerticalScrollBarEnabled = false
             addView(content)
         }
         val holder = FrameLayout(this)
@@ -121,50 +268,84 @@ object Ui {
         dialog.window?.apply {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             setGravity(Gravity.BOTTOM)
-            val maxW = minOf(resources.displayMetrics.widthPixels, dpi(560f))
+            val maxW = minOf(resources.displayMetrics.widthPixels, dpi(600f))
             setLayout(maxW, WindowManager.LayoutParams.WRAP_CONTENT)
-            setDimAmount(0.25f)
+            setDimAmount(0.32f)
+            setWindowAnimations(android.R.style.Animation_InputMethod)
+            setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         }
+        dialog.show()
         return dialog
     }
 
-    /** Diálogo com um campo de texto. */
-    fun Context.promptText(title: String, initial: String, hint: String = "", onOk: (String) -> Unit) {
-        val input = EditText(this).apply {
-            setText(initial)
-            this.hint = hint
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-            setSelectAllOnFocus(true)
-            isSingleLine = true
+    class SheetItem(val icon: Icon, val text: String, val danger: Boolean = false, val onClick: () -> Unit)
+
+    /** Lista de ações com ícone (substitui menus e diálogos de lista). */
+    fun Context.actionSheet(title: String?, items: List<SheetItem>, header: View? = null): Dialog = sheet(title) { box, dialog ->
+        if (header != null) box.addView(header)
+        for (it in items) {
+            val color = if (it.danger) DANGER else INK
+            val row = horizontal().apply {
+                minimumHeight = dpi(54f)
+                setPadding(dpi(6f), 0, dpi(6f), 0)
+                background = ripple(null, rounded(Color.WHITE, 14f))
+                setOnClickListener { _ -> dialog.dismiss(); it.onClick() }
+            }
+            row.addView(ImageView(this).apply { setImageDrawable(icon(it.icon, color, 22f)) },
+                LinearLayout.LayoutParams(dpi(24f), dpi(24f)).apply { marginEnd = dpi(16f) })
+            row.addView(label(it.text, 16f, color))
+            box.addView(row)
         }
-        val box = FrameLayout(this).apply {
-            setPadding(dpi(20f), dpi(8f), dpi(20f), 0)
-            addView(input)
-        }
-        val d = AlertDialog.Builder(this)
-            .setTitle(title)
-            .setView(box)
-            .setPositiveButton("OK") { _, _ -> onOk(input.text.toString().trim()) }
-            .setNegativeButton("Cancelar", null)
-            .create()
-        d.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
-        d.show()
-        input.requestFocus()
     }
 
     fun Context.confirm(title: String, message: String, action: String, onOk: () -> Unit) {
-        AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage(message)
-            .setPositiveButton(action) { _, _ -> onOk() }
-            .setNegativeButton("Cancelar", null)
-            .show()
+        sheet(title) { box, dialog ->
+            box.addView(label(message, 15f, MUTED).apply { setLineSpacing(0f, 1.15f) })
+            box.addView(buttonRow(
+                secondaryButton("Cancelar") { dialog.dismiss() },
+                primaryButton(action, DANGER) { dialog.dismiss(); onOk() },
+            ))
+        }
     }
 
-    fun Context.choose(title: String, options: List<String>, onPick: (Int) -> Unit) {
-        AlertDialog.Builder(this)
-            .setTitle(title)
-            .setItems(options.toTypedArray()) { _, i -> onPick(i) }
-            .show()
+    fun Context.promptText(title: String, initial: String, hint: String = "", action: String = "Salvar", onOk: (String) -> Unit) {
+        sheet(title) { box, dialog ->
+            val field = textField(initial, hint)
+            box.addView(field)
+            box.addView(buttonRow(
+                secondaryButton("Cancelar") { dialog.dismiss() },
+                primaryButton(action) { dialog.dismiss(); onOk(field.text.toString().trim()) },
+            ))
+            field.requestFocus()
+            field.selectAll()
+            dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        }
+    }
+
+    fun Context.buttonRow(vararg buttons: View) = horizontal().apply {
+        setPadding(0, dpi(20f), 0, 0)
+        buttons.forEachIndexed { i, b ->
+            addView(b, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                if (i > 0) marginStart = dpi(10f)
+            })
+        }
+    }
+
+    /** Seção com título pequeno em cinza. */
+    fun Context.sectionLabel(text: String) = label(text.uppercase(), 12f, MUTED, bold = true).apply {
+        letterSpacing = 0.06f
+        setPadding(0, dpi(16f), 0, dpi(8f))
+    }
+
+    /** Agrupa vistas em linhas de [perRow] itens. */
+    fun Context.wrapRow(children: List<View>, perRow: Int): LinearLayout {
+        val col = vertical()
+        var row: LinearLayout? = null
+        children.forEachIndexed { i, v ->
+            if (i % perRow == 0) row = horizontal().also { col.addView(it) }
+            row!!.addView(v)
+        }
+        return col
     }
 }

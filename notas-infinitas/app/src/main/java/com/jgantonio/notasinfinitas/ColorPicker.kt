@@ -1,6 +1,5 @@
 package com.jgantonio.notasinfinitas
 
-import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
@@ -21,8 +20,11 @@ import com.jgantonio.notasinfinitas.Ui.circle
 import com.jgantonio.notasinfinitas.Ui.dp
 import com.jgantonio.notasinfinitas.Ui.dpi
 import com.jgantonio.notasinfinitas.Ui.horizontal
-import com.jgantonio.notasinfinitas.Ui.label
-import com.jgantonio.notasinfinitas.Ui.vertical
+import com.jgantonio.notasinfinitas.Ui.buttonRow
+import com.jgantonio.notasinfinitas.Ui.primaryButton
+import com.jgantonio.notasinfinitas.Ui.rounded
+import com.jgantonio.notasinfinitas.Ui.secondaryButton
+import com.jgantonio.notasinfinitas.Ui.sheet
 
 /** Seletor de cor personalizada: quadrado de saturação/brilho, barra de matiz e código hex. */
 object ColorPicker {
@@ -43,7 +45,7 @@ object ColorPicker {
 
         fun refresh(fromText: Boolean = false) {
             val c = Color.HSVToColor(hsv)
-            preview.background = context.circle(c, Ui.BORDER, 1f)
+            preview.background = context.circle(c, Ui.LINE, 1f)
             sv.hue = hsv[0]
             sv.invalidate()
             hue.invalidate()
@@ -72,24 +74,23 @@ object ColorPicker {
             }
         })
 
-        val root = context.vertical(16f)
-        root.addView(sv, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, context.dpi(200f)))
-        root.addView(hue, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, context.dpi(28f)).apply {
-            topMargin = context.dpi(14f)
-        })
-        val row = context.horizontal().apply { setPadding(0, context.dpi(14f), 0, 0) }
-        row.addView(preview, LinearLayout.LayoutParams(context.dpi(36f), context.dpi(36f)))
-        row.addView(context.label("  Hex "))
-        row.addView(hex, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        root.addView(row)
-        refresh()
-
-        AlertDialog.Builder(context)
-            .setTitle("Cor personalizada")
-            .setView(root)
-            .setPositiveButton("Usar cor") { _, _ -> onPick(Color.HSVToColor(hsv)) }
-            .setNegativeButton("Cancelar", null)
-            .show()
+        hex.background = context.rounded(Ui.FIELD, 12f)
+        hex.setPadding(context.dpi(14f), context.dpi(10f), context.dpi(14f), context.dpi(10f))
+        context.sheet("Cor personalizada") { root, dialog ->
+            root.addView(sv, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, context.dpi(190f)))
+            root.addView(hue, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, context.dpi(28f)).apply {
+                topMargin = context.dpi(16f)
+            })
+            val row = context.horizontal().apply { setPadding(0, context.dpi(16f), 0, 0) }
+            row.addView(preview, LinearLayout.LayoutParams(context.dpi(40f), context.dpi(40f)).apply { marginEnd = context.dpi(12f) })
+            row.addView(hex, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            root.addView(row)
+            root.addView(context.buttonRow(
+                context.secondaryButton("Cancelar") { dialog.dismiss() },
+                context.primaryButton("Usar cor") { dialog.dismiss(); onPick(Color.HSVToColor(hsv)) },
+            ))
+            refresh()
+        }
     }
 
     private class SatValView(context: Context, val hsv: FloatArray, val onChange: () -> Unit) : View(context) {
