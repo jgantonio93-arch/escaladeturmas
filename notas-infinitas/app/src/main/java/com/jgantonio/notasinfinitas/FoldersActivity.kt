@@ -130,9 +130,22 @@ class FoldersActivity : Activity() {
 
     fun render() {
         val fid = folderId
+        if (fid == null) {
+            renderHome()
+            return
+        }
         content.removeAllViews()
-        if (fid == null) renderHome() else renderFolder(Library.folder(fid) ?: return)
+        renderFolder(Library.folder(fid) ?: return)
     }
+
+    // Cabeçalho da página inicial (fixo, para a busca não perder o foco) e corpo que muda.
+    private var homeHead: LinearLayout? = null
+    private var homeBody: LinearLayout? = null
+    private var homeCount: TextView? = null
+    private var query = ""
+
+    private fun normalize(t: String) =
+        java.text.Normalizer.normalize(t.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "")
 
     private fun countText(folders: Int, notes: Int): String {
         val parts = ArrayList<String>()
@@ -142,12 +155,67 @@ class FoldersActivity : Activity() {
     }
 
     private fun renderHome() {
-        val head = vertical().apply { setPadding(dpi(6f), dpi(44f), dpi(6f), dpi(8f)) }
-        head.addView(label("NOTAS INFINITAS", 12f, Ui.ACCENT, bold = true).apply { letterSpacing = 0.12f })
-        head.addView(title("Pastas", 34f).apply { setPadding(0, dpi(2f), 0, 0) })
-        head.addView(label(countText(Library.folders.size, Library.notes.size), 14f))
-        content.addView(head)
+        if (homeHead == null) {
+            val head = vertical().apply { setPadding(dpi(6f), dpi(44f), dpi(6f), dpi(8f)) }
+            head.addView(label("NOTAS INFINITAS", 12f, Ui.ACCENT, bold = true).apply { letterSpacing = 0.12f })
+            head.addView(title("Pastas", 34f).apply { setPadding(0, dpi(2f), 0, 0) })
+            homeCount = label("", 14f)
+            head.addView(homeCount)
+            val search = Ui.run { textField("", "Buscar notas e pastas") }.apply {
+                setCompoundDrawablesRelativeWithIntrinsicBounds(icon(Icon.ZOOM, Ui.MUTED, 20f), null, null, null)
+                compoundDrawablePadding = dpi(10f)
+                background = Ui.run { rounded(Color.WHITE, 16f, Ui.LINE) }
+                addTextChangedListener(object : android.text.TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+                    override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+                    override fun afterTextChanged(e: android.text.Editable?) {
+                        query = e?.toString()?.trim() ?: ""
+                        renderHome()
+                    }
+                })
+            }
+            head.addView(search, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dpi(16f)
+            })
+            homeHead = head
+            homeBody = vertical()
+            content.addView(head)
+            content.addView(homeBody)
+        }
+        homeCount?.text = countText(Library.folders.size, Library.notes.size)
+        val body = homeBody!!
+        body.removeAllViews()
+        val target = content
+        content = body
+        try {
+            if (query.isNotEmpty()) renderSearch() else renderHomeBody()
+        } finally {
+            content = target
+        }
+    }
 
+    private fun renderSearch() {
+        val q = normalize(query)
+        val folders = Library.folders.filter { normalize(it.name).contains(q) }.sortedBy { it.name.lowercase() }
+        val notes = Library.notes.filter { normalize(it.title).contains(q) }.sortedByDescending { it.modified }
+        if (folders.isEmpty() && notes.isEmpty()) {
+            content.addView(label("Nada encontrado para “$query”.", 15f).apply {
+                gravity = Gravity.CENTER
+                setPadding(0, dpi(48f), 0, 0)
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            return
+        }
+        if (folders.isNotEmpty()) {
+            content.addView(sectionLabel("Pastas").apply { setPadding(dpi(6f), dpi(14f), 0, dpi(4f)) })
+            addGrid(folders.map { folderCard(it) })
+        }
+        if (notes.isNotEmpty()) {
+            content.addView(sectionLabel("Notas").apply { setPadding(dpi(6f), dpi(14f), 0, dpi(4f)) })
+            addGrid(notes.map { noteCard(it, showFolder = true) })
+        }
+    }
+
+    private fun renderHomeBody() {
         val recent = Library.notes.sortedByDescending { it.modified }.take(8)
         if (recent.isNotEmpty()) {
             content.addView(sectionLabel("Recentes").apply { setPadding(dpi(6f), dpi(18f), 0, dpi(8f)) })
