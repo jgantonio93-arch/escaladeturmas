@@ -556,6 +556,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
             }
             if (aspect != null) fitAspect(img, aspect)
         }
+        listener?.onCropModeChanged(true)
         invalidate()
     }
 
@@ -1282,14 +1283,8 @@ class InfiniteCanvasView(context: Context) : View(context) {
     /** Modo de recorte: imagem inteira escurecida, área mantida em destaque e alças. */
     private fun drawCrop(canvas: Canvas, img: ImageElement) {
         val full = img.fullLocalFrame()
-        canvas.save()
-        canvas.translate(img.centerX, img.centerY)
-        canvas.rotate(img.rotation)
-        canvas.scale(if (img.flipH) -1f else 1f, if (img.flipV) -1f else 1f)
-        canvas.translate(-img.centerX, -img.centerY)
-        // A imagem inteira, sem recorte
+        // A imagem inteira, sem recorte (o próprio draw aplica rotação e espelhamento)
         images.draw(canvas, img, scale, sync = false, showFull = true)
-        canvas.restore()
 
         canvas.save()
         canvas.translate(img.centerX, img.centerY)

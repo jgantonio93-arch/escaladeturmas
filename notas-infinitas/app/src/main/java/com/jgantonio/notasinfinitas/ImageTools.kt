@@ -127,7 +127,7 @@ object ImageTools {
             }
             box.addView(dotRow)
 
-            box.addView(context.switchRow(Icon.PAGE, "Sombra", start.shadow) { on -> canvas.updateDraft { it.with(shadow = on) } })
+            box.addView(context.switchRow(Icon.IMAGE, "Sombra", start.shadow) { on -> canvas.updateDraft { it.with(shadow = on) } })
 
             box.addView(context.buttonRow(
                 context.secondaryButton("Redefinir") {

@@ -125,7 +125,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         selectionBar = buildSelectionBar()
         selectionBar.visibility = View.GONE
         stage.addView(selectionBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
-            bottomMargin = dpi(18f)
+            setMargins(dpi(12f), 0, dpi(12f), dpi(18f))
         })
 
         trayLayer = FrameLayout(this).apply { visibility = View.GONE }
@@ -530,6 +530,8 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
 
     override fun onSelectionChanged(count: Int) {
         selectionBar.visibility = if (count > 0 || canvasView.inCropMode) View.VISIBLE else View.GONE
+        // A barra fica embaixo, no lugar do contador de zoom.
+        zoomLabel.visibility = if (selectionBar.visibility == View.VISIBLE) View.GONE else View.VISIBLE
         if (selectionBar.visibility == View.VISIBLE) fillSelectionBar()
         refresh()
     }
