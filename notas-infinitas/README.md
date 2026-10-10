@@ -15,6 +15,7 @@ As capturas em `docs/screenshots` são geradas pelo CI (Robolectric) a cada muda
 ## Como usar
 
 ### Pastas (página inicial)
+- **Busca** de notas e pastas (ignora acentos).
 - O app abre na tela de **Pastas**. Toque em **+** para criar uma pasta (nome e cor).
 - Dentro de uma pasta, o **+** cria uma **nota** ou uma **subpasta**.
 - Segure uma pasta ou nota para **renomear, mudar a cor, mover, duplicar ou excluir**.
@@ -33,6 +34,28 @@ As capturas em `docs/screenshots` são geradas pelo CI (Robolectric) a cada muda
   personalizadas ficam salvas.
 - **Formas automáticas**: linha reta, círculo/elipse, triângulo, retângulo, pentágono.
 - **Favoritos**: salve combinações de caneta e use pela barra (segure para remover).
+
+### Caneta com latência mínima
+- A tinta em andamento é desenhada direto no buffer da tela (front buffer), sem
+  esperar o próximo quadro, e a nota não é redesenhada a cada ponto.
+- Em Android 14+, previsão de movimento quando o front buffer não está disponível.
+- O editor pede a taxa de atualização máxima da tela (ex.: 120 Hz).
+- Pode ser desligada no menu ⋮ ("Tinta de latência mínima").
+
+### Texto (como no Samsung Notes)
+- Toque com a ferramenta **T** e digite direto na tela. A barra acima do teclado tem
+  fonte, tamanho, **negrito**, *itálico*, sublinhado, tachado, alinhamento, cor e
+  marca-texto. Com um trecho selecionado, o estilo vale só para o trecho.
+- Toque de novo num texto selecionado para editar. Com a seleção: girar (alça ou 90°),
+  aumentar/diminuir, espelhar, virar, endireitar, cor, frente/trás, duplicar e excluir.
+
+### Imagens e PDF
+- Toque na imagem com a seleção: girar livre (com ímã nos ângulos retos), recortar
+  (livre, 1:1, 16:9, círculo, à mão livre), ajustes (filtros, brilho, contraste,
+  saturação, opacidade), cantos, moldura, sombra, espelhar, travar, substituir,
+  salvar na galeria.
+- PDF: importa todas as páginas em coluna, lado a lado ou em grade, travadas como
+  fundo. Destrave uma página para mover, girar, recortar ou separar.
 
 ### Outras ferramentas
 - **Borracha** (toque de novo para opções): apagar traço inteiro ou **por área**,

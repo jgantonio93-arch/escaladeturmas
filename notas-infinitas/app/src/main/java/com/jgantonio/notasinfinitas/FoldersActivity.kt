@@ -65,7 +65,12 @@ class FoldersActivity : Activity() {
             fitsSystemWindows = true
             setBackgroundColor(Ui.BG)
         }
-        content = vertical().apply { setPadding(dpi(16f), 0, dpi(16f), dpi(120f)) }
+        content = vertical().apply {
+            setPadding(dpi(16f), 0, dpi(16f), dpi(120f))
+            // Segura o foco inicial: o teclado não abre sozinho por causa da busca.
+            isFocusableInTouchMode = true
+            descendantFocusability = android.view.ViewGroup.FOCUS_BEFORE_DESCENDANTS
+        }
         root.addView(ScrollView(this).apply {
             isVerticalScrollBarEnabled = false
             addView(content)
@@ -162,7 +167,7 @@ class FoldersActivity : Activity() {
             homeCount = label("", 14f)
             head.addView(homeCount)
             val search = Ui.run { textField("", "Buscar notas e pastas") }.apply {
-                setCompoundDrawablesRelativeWithIntrinsicBounds(icon(Icon.ZOOM, Ui.MUTED, 20f), null, null, null)
+                setCompoundDrawablesRelativeWithIntrinsicBounds(icon(Icon.SEARCH, Ui.MUTED, 20f), null, null, null)
                 compoundDrawablePadding = dpi(10f)
                 background = Ui.run { rounded(Color.WHITE, 16f, Ui.LINE) }
                 addTextChangedListener(object : android.text.TextWatcher {

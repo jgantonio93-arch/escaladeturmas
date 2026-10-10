@@ -17,7 +17,7 @@ enum class Icon {
     BACK, UNDO, REDO, MORE, ERASER, LASSO, TEXT, IMAGE, PLUS, FOLDER, FOLDER_PLUS, NOTE,
     TRASH, COPY, PALETTE, CHECK, CLOSE, EDIT, MOVE, STAR, TOUCH, EXPORT, PDF, PAGE, CENTER, SHAPES, CHEVRON_RIGHT,
     ROTATE, LOCK, UNLOCK, CROP, FLIP_H, FLIP_V, ADJUST, TO_FRONT, TO_BACK, DOWNLOAD, RESET, ZOOM, SELECT_ALL,
-    MARKER, ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT, TEXT_BIGGER, TEXT_SMALLER
+    SEARCH, MARKER, ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT, TEXT_BIGGER, TEXT_SMALLER
 }
 
 class IconDrawable(
@@ -262,6 +262,10 @@ class IconDrawable(
                 val dashed = Paint(stroke).apply { pathEffect = DashPathEffect(floatArrayOf(2.4f, 2.2f), 0f) }
                 c.drawPath(path { rrect(3.5f, 3.5f, 20.5f, 20.5f, 2.5f) }, dashed)
                 c.drawPath(path { rrect(8f, 8f, 16f, 16f, 1.5f) }, fill)
+            }
+            Icon.SEARCH -> {
+                c.drawCircle(10.5f, 10.5f, 6.5f, stroke)
+                c.drawLine(15.5f, 15.5f, 20.5f, 20.5f, stroke)
             }
             Icon.MARKER -> {
                 c.drawPath(path {
