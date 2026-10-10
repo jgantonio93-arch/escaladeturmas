@@ -41,6 +41,27 @@ jobs:
       - name: Testes de funcionamento
         run: ./gradlew testDebugUnitTest --tests "*FunctionalTest*"
 
+      # Só versões que passaram nos testes viram "Release". O link fixo
+      # https://github.com/<dono>/<repo>/releases/latest/download/TonyNotes.apk
+      # sempre baixa a mais recente (é o link do botão do site).
+      - name: Publicar versão (link fixo de download)
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          TAG="tonynotes-v${VERSION}-build${GITHUB_RUN_NUMBER}"
+          cp app/build/outputs/apk/debug/TonyNotes-debug.apk TonyNotes.apk
+          gh release create "$TAG" TonyNotes.apk \
+            --target "$GITHUB_SHA" \
+            --title "TonyNotes ${VERSION} (build ${GITHUB_RUN_NUMBER})" \
+            --notes "Versão gerada automaticamente a partir de ${GITHUB_SHA::7}. Baixe o TonyNotes.apk e instale por cima da versão anterior: suas notas continuam lá." \
+            --latest
+          # Guarda só as 10 versões mais novas.
+          gh release list --limit 100 --json tagName,createdAt \
+            --jq 'sort_by(.createdAt) | reverse | .[].tagName | select(startswith("tonynotes-"))' \
+            | tail -n +11 | xargs -r -n1 gh release delete --cleanup-tag -y
+
       - name: Gerar capturas de tela
         if: always()
         run: ./gradlew testDebugUnitTest --tests "*ScreenshotTest*" --stacktrace
