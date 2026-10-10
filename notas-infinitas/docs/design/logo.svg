@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="512" height="512">
+  <title>TonyNotes</title>
+  <defs>
+    <linearGradient id="tn-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4060CC"/>
+      <stop offset="1" stop-color="#25389A"/>
+    </linearGradient>
+  </defs>
+  <rect width="108" height="108" rx="30" fill="url(#tn-bg)"/>
+  <g transform="translate(0 -1) translate(54 54) scale(1.25) translate(-54 -54)">
+    <rect x="30" y="34" width="48" height="13" rx="4" fill="#FFD84D" transform="rotate(-4 54 40)"/>
+    <path d="M34.5 41H73.5M53 41V60.5C53 71.5 63.5 74.5 71 68" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

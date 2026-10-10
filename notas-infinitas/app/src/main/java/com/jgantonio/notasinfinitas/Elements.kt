@@ -1,0 +1,611 @@
+package com.jgantonio.notasinfinitas
+
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
+import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.hypot
+import kotlin.math.max
+
+/**
+ * Tudo que pode estar na tela infinita. Os elementos são imutáveis: editar significa
+ * trocar um elemento por outro (isso deixa desfazer/refazer simples e seguro).
+ * Coordenadas sempre no "mundo".
+ */
+sealed class Element {
+    abstract val bounds: RectF
+
+    /** Cópia com a transformação aplicada (escala, rotação e deslocamento). */
+    abstract fun transformed(t: Transform): Element
+
+    abstract fun insideLasso(lasso: Lasso): Boolean
+
+    /** "Incluir objetos parcialmente selecionados": basta encostar no laço. */
+    abstract fun touchesLasso(lasso: Lasso): Boolean
+
+    /** Elementos travados não são selecionados pelo laço, movidos ou apagados. */
+    open val locked: Boolean get() = false
+}
+
+/**
+ * p' = R(rotation) * ((p - origem) * escala) + origem + (dx, dy).
+ * [rotation] em graus, sentido horário (como no Canvas).
+ */
+class Transform(
+    val scale: Float = 1f,
+    val rotation: Float = 0f,
+    val ox: Float = 0f,
+    val oy: Float = 0f,
+    val dx: Float = 0f,
+    val dy: Float = 0f,
+) {
+    private val rad = Math.toRadians(rotation.toDouble())
+    private val cos = kotlin.math.cos(rad).toFloat()
+    private val sin = kotlin.math.sin(rad).toFloat()
+
+    val isIdentity get() = scale == 1f && rotation == 0f && dx == 0f && dy == 0f
+
+    fun x(px: Float, py: Float): Float {
+        val ux = (px - ox) * scale
+        val uy = (py - oy) * scale
+        return ux * cos - uy * sin + ox + dx
+    }
+
+    fun y(px: Float, py: Float): Float {
+        val ux = (px - ox) * scale
+        val uy = (py - oy) * scale
+        return ux * sin + uy * cos + oy + dy
+    }
+
+    /** Aplica a mesma transformação a um Canvas (para a prévia durante o gesto). */
+    fun applyTo(c: android.graphics.Canvas) {
+        c.translate(ox + dx, oy + dy)
+        c.rotate(rotation)
+        c.scale(scale, scale)
+        c.translate(-ox, -oy)
+    }
+
+    companion object {
+        fun translate(dx: Float, dy: Float) = Transform(dx = dx, dy = dy)
+    }
+}
+
+class StrokeElement(
+    val type: BrushType,
+    val color: Int,
+    val alpha: Int,
+    val xs: FloatArray,
+    val ys: FloatArray,
+    val ws: FloatArray,
+) : Element() {
+
+    val n get() = xs.size
+
+    /** Espessura constante: desenha como linha. O marca-texto (ponta chanfrada) é sempre contorno. */
+    val uniform: Boolean = type != BrushType.HIGHLIGHTER && ws.isNotEmpty() && ws.all { abs(it - ws[0]) < 0.01f }
+
+    override val bounds: RectF = RectF(Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE).also { r ->
+        for (i in xs.indices) {
+            val h = ws[i] / 2f + 1f
+            r.union(xs[i] - h, ys[i] - h, xs[i] + h, ys[i] + h)
+        }
+        if (xs.isEmpty()) r.set(0f, 0f, 0f, 0f)
+    }
+
+    private var cachedPath: Path? = null
+    val path: Path
+        get() = cachedPath ?: StrokeRenderer.buildPath(xs, ys, ws, n, uniform, flatCaps = type == BrushType.HIGHLIGHTER).also { cachedPath = it }
+
+    fun withColor(c: Int) = StrokeElement(type, c, alpha, xs, ys, ws)
+
+    override fun transformed(t: Transform) = StrokeElement(
+        type, color, alpha,
+        FloatArray(n) { t.x(xs[it], ys[it]) },
+        FloatArray(n) { t.y(xs[it], ys[it]) },
+        FloatArray(n) { ws[it] * t.scale },
+    )
+
+    fun hits(px: Float, py: Float, radius: Float): Boolean {
+        val m = (ws.maxOrNull() ?: 0f) / 2f + radius
+        if (px < bounds.left - radius || px > bounds.right + radius ||
+            py < bounds.top - radius || py > bounds.bottom + radius
+        ) return false
+        if (n == 1) return hypot(px - xs[0], py - ys[0]) <= m
+        for (i in 1 until n) {
+            val reach = max(ws[i - 1], ws[i]) / 2f + radius
+            if (Geometry.segmentDist(px, py, xs[i - 1], ys[i - 1], xs[i], ys[i]) <= reach) return true
+        }
+        return false
+    }
+
+    /**
+     * Borracha parcial: devolve os pedaços que sobram depois de apagar um círculo,
+     * ou null se o círculo não encosta no traço.
+     */
+    fun eraseCircle(px: Float, py: Float, radius: Float): List<StrokeElement>? {
+        if (!hits(px, py, radius)) return null
+        // Densifica para não "pular" o círculo em segmentos longos (ex.: linhas retas).
+        val step = max(0.5f, radius / 3f)
+        val dx = ArrayList<Float>(); val dy = ArrayList<Float>(); val dw = ArrayList<Float>()
+        for (i in 0 until n) {
+            if (i > 0) {
+                val len = hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1])
+                val parts = ceil(len / step).toInt()
+                for (k in 1 until parts) {
+                    val f = k.toFloat() / parts
+                    dx.add(xs[i - 1] + (xs[i] - xs[i - 1]) * f)
+                    dy.add(ys[i - 1] + (ys[i] - ys[i - 1]) * f)
+                    dw.add(ws[i - 1] + (ws[i] - ws[i - 1]) * f)
+                }
+            }
+            dx.add(xs[i]); dy.add(ys[i]); dw.add(ws[i])
+        }
+        val pieces = ArrayList<StrokeElement>()
+        var start = -1
+        fun flush(end: Int) {
+            if (start >= 0 && end - start >= 2) {
+                pieces.add(StrokeElement(
+                    type, color, alpha,
+                    FloatArray(end - start) { dx[start + it] },
+                    FloatArray(end - start) { dy[start + it] },
+                    FloatArray(end - start) { dw[start + it] },
+                ))
+            }
+            start = -1
+        }
+        for (i in dx.indices) {
+            val inside = hypot(dx[i] - px, dy[i] - py) <= radius + dw[i] / 4f
+            if (inside) flush(i) else if (start < 0) start = i
+        }
+        flush(dx.size)
+        return pieces
+    }
+
+    override fun insideLasso(lasso: Lasso): Boolean {
+        if (!RectF.intersects(bounds, lasso.bounds)) return false
+        val stepI = max(1, n / 40)
+        var inside = 0
+        var total = 0
+        var i = 0
+        while (i < n) {
+            total++
+            if (lasso.contains(xs[i], ys[i])) inside++
+            i += stepI
+        }
+        return inside * 2 >= total
+    }
+
+    override fun touchesLasso(lasso: Lasso): Boolean {
+        if (!RectF.intersects(bounds, lasso.bounds)) return false
+        for (i in 0 until n) if (lasso.contains(xs[i], ys[i])) return true
+        return lasso.crosses(xs, ys, n, closed = false)
+    }
+}
+
+/** Estilo aplicado a um trecho do texto (início/fim em caracteres). */
+class TextSpan(val start: Int, val end: Int, val type: Int, val value: Int = 0) {
+    companion object {
+        const val BOLD = 1
+        const val ITALIC = 2
+        const val UNDERLINE = 3
+        const val STRIKE = 4
+        const val COLOR = 5
+        const val HIGHLIGHT = 6
+        /** Tamanho relativo, em porcentagem do tamanho da caixa. */
+        const val SIZE = 7
+    }
+}
+
+enum class TextAlign { LEFT, CENTER, RIGHT }
+
+/** Contexto da aplicação, para fontes em assets (definido ao abrir as telas). */
+var appContext: android.content.Context? = null
+
+enum class TextFont(val label: String, val family: String) {
+    SANS("Padrão", "sans-serif"),
+    SERIF("Serifa", "serif"),
+    MONO("Máquina", "monospace"),
+    HAND("Manuscrita", "casual"),
+    CURSIVE("Cursiva", "cursive"),
+    CONDENSED("Estreita", "sans-serif-condensed"),
+    ROUNDED("Leve", "sans-serif-light"),
+    /** Fontes do app (em assets): serifa elegante e grotesca moderna. */
+    FRAUNCES("Fraunces", "fraunces"),
+    ONEST("Onest", "onest");
+
+    fun typeface(bold: Boolean, italic: Boolean): android.graphics.Typeface {
+        val ctx = appContext
+        if (ctx != null && (this == FRAUNCES || this == ONEST)) {
+            val w = if (bold) 700 else 400
+            return if (this == FRAUNCES) Ui.fraunces(ctx, w, italic) else Ui.onest(ctx, w, italic)
+        }
+        val style = when {
+            bold && italic -> android.graphics.Typeface.BOLD_ITALIC
+            bold -> android.graphics.Typeface.BOLD
+            italic -> android.graphics.Typeface.ITALIC
+            else -> android.graphics.Typeface.NORMAL
+        }
+        return android.graphics.Typeface.create(family, style)
+    }
+}
+
+/**
+ * Caixa de texto. (x, y) é o canto superior esquerdo do quadro sem rotação; a caixa
+ * gira em torno do próprio centro. Estilos da caixa inteira (negrito, cor, fonte...)
+ * e estilos por trecho ([spans]) convivem, como no Samsung Notes.
+ */
+class TextElement(
+    val text: String,
+    val x: Float,
+    val y: Float,
+    val size: Float,
+    val color: Int,
+    val rotation: Float = 0f,
+    val flipH: Boolean = false,
+    val flipV: Boolean = false,
+    val bold: Boolean = false,
+    val italic: Boolean = false,
+    val underline: Boolean = false,
+    val strike: Boolean = false,
+    val align: TextAlign = TextAlign.LEFT,
+    val font: TextFont = TextFont.SANS,
+    /** Fundo da caixa inteira (0 = sem fundo). */
+    val bgColor: Int = 0,
+    val spans: List<TextSpan> = emptyList(),
+) : Element() {
+
+    fun with(
+        text: String = this.text, x: Float = this.x, y: Float = this.y, size: Float = this.size, color: Int = this.color,
+        rotation: Float = this.rotation, flipH: Boolean = this.flipH, flipV: Boolean = this.flipV,
+        bold: Boolean = this.bold, italic: Boolean = this.italic, underline: Boolean = this.underline, strike: Boolean = this.strike,
+        align: TextAlign = this.align, font: TextFont = this.font, bgColor: Int = this.bgColor, spans: List<TextSpan> = this.spans,
+    ) = TextElement(text, x, y, size, color, ImageElement.normalizeAngle(rotation), flipH, flipV, bold, italic, underline, strike,
+        align, font, bgColor, spans)
+
+    fun paint() = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = size
+        color = this@TextElement.color
+        typeface = font.typeface(bold, italic)
+        isUnderlineText = underline
+        isStrikeThruText = strike
+    }
+
+    /** Texto com os estilos por trecho aplicados. */
+    fun spanned(): CharSequence {
+        val sp = android.text.SpannableString(text)
+        val flag = android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        for (s in spans) {
+            val a = s.start.coerceIn(0, text.length)
+            val b = s.end.coerceIn(a, text.length)
+            if (a == b) continue
+            val span: Any = when (s.type) {
+                TextSpan.BOLD -> android.text.style.StyleSpan(android.graphics.Typeface.BOLD)
+                TextSpan.ITALIC -> android.text.style.StyleSpan(android.graphics.Typeface.ITALIC)
+                TextSpan.UNDERLINE -> android.text.style.UnderlineSpan()
+                TextSpan.STRIKE -> android.text.style.StrikethroughSpan()
+                TextSpan.COLOR -> android.text.style.ForegroundColorSpan(s.value)
+                TextSpan.HIGHLIGHT -> android.text.style.BackgroundColorSpan(s.value)
+                TextSpan.SIZE -> android.text.style.RelativeSizeSpan(s.value / 100f)
+                else -> continue
+            }
+            sp.setSpan(span, a, b, flag)
+        }
+        return sp
+    }
+
+    /** Layout do texto (calculado uma vez; o elemento é imutável). */
+    val layout: android.text.StaticLayout by lazy {
+        val p = paint()
+        val content = spanned()
+        val w = kotlin.math.ceil(android.text.Layout.getDesiredWidth(content, p)).toInt().coerceAtLeast((size * 0.6f).toInt()) + 2
+        val alignment = when (align) {
+            TextAlign.LEFT -> android.text.Layout.Alignment.ALIGN_NORMAL
+            TextAlign.CENTER -> android.text.Layout.Alignment.ALIGN_CENTER
+            TextAlign.RIGHT -> android.text.Layout.Alignment.ALIGN_OPPOSITE
+        }
+        android.text.StaticLayout.Builder.obtain(content, 0, content.length, p, w)
+            .setAlignment(alignment)
+            .setIncludePad(true)
+            .build()
+    }
+
+    val boxWidth: Float get() = layout.width.toFloat()
+    val boxHeight: Float get() = max(layout.height.toFloat(), size)
+    val centerX get() = x + boxWidth / 2f
+    val centerY get() = y + boxHeight / 2f
+
+    /** Folga do fundo colorido em volta do texto. */
+    val pad get() = if (bgColor != 0) size * 0.25f else 0f
+
+    override val bounds: RectF by lazy {
+        val t = Transform(rotation = rotation, ox = centerX, oy = centerY)
+        val p = pad
+        val xs = floatArrayOf(x - p, x + boxWidth + p, x + boxWidth + p, x - p)
+        val ys = floatArrayOf(y - p, y - p, y + boxHeight + p, y + boxHeight + p)
+        val cx = FloatArray(4) { t.x(xs[it], ys[it]) }
+        val cy = FloatArray(4) { t.y(xs[it], ys[it]) }
+        RectF(cx.min(), cy.min(), cx.max(), cy.max())
+    }
+
+    fun contains(px: Float, py: Float): Boolean {
+        val t = Transform(rotation = -rotation, ox = centerX, oy = centerY)
+        val lx = t.x(px, py)
+        val ly = t.y(px, py)
+        val p = pad + size * 0.15f
+        return lx >= x - p && lx <= x + boxWidth + p && ly >= y - p && ly <= y + boxHeight + p
+    }
+
+    fun withColor(c: Int) = with(color = c, spans = spans.filter { it.type != TextSpan.COLOR })
+
+    override fun transformed(t: Transform): TextElement {
+        val ncx = t.x(centerX, centerY)
+        val ncy = t.y(centerX, centerY)
+        // A largura acompanha o tamanho da fonte (o texto não quebra sozinho).
+        val w = boxWidth * t.scale
+        val h = boxHeight * t.scale
+        return with(x = ncx - w / 2f, y = ncy - h / 2f, size = size * t.scale, rotation = rotation + t.rotation)
+    }
+
+    override fun insideLasso(lasso: Lasso) = lasso.contains(centerX, centerY)
+
+    override fun touchesLasso(lasso: Lasso): Boolean {
+        val t = Transform(rotation = rotation, ox = centerX, oy = centerY)
+        val p = pad
+        val lx = floatArrayOf(x - p, x + boxWidth + p, x + boxWidth + p, x - p)
+        val ly = floatArrayOf(y - p, y - p, y + boxHeight + p, y + boxHeight + p)
+        return lasso.touchesQuad(FloatArray(4) { t.x(lx[it], ly[it]) }, FloatArray(4) { t.y(lx[it], ly[it]) }) { px, py -> contains(px, py) }
+    }
+
+    /** Mesmo centro, novo conteúdo/estilo (usado ao terminar de editar). */
+    fun keepingCenterOf(old: TextElement): TextElement {
+        if (old.rotation == 0f && !old.flipH && !old.flipV) return with(x = old.x, y = old.y)
+        return with(x = old.centerX - boxWidth / 2f, y = old.centerY - boxHeight / 2f)
+    }
+}
+
+enum class ImageFilter(val label: String) {
+    NONE("Original"), MONO("P&B"), SEPIA("Sépia"), VIVID("Vívido"),
+    WARM("Quente"), COOL("Frio"), FADE("Desbotado"), NOIR("Noir"), INVERT("Negativo"),
+}
+
+enum class ImageMask(val label: String) { RECT("Reto"), ROUNDED("Arredondado"), ELLIPSE("Círculo"), FREE("Livre") }
+
+/**
+ * Imagem na tela. [rect] é o quadro visível (já recortado), sem rotação, em coordenadas
+ * do mundo; a imagem gira em torno do centro dele. [crop] é a parte da imagem original
+ * que aparece, em frações (0..1). [freeMask] é um polígono (x, y alternados, em frações
+ * da imagem original) para o recorte à mão livre.
+ */
+class ImageElement(
+    val file: String,
+    val rect: RectF,
+    val rotation: Float = 0f,
+    val flipH: Boolean = false,
+    val flipV: Boolean = false,
+    val crop: RectF = RectF(0f, 0f, 1f, 1f),
+    val mask: ImageMask = ImageMask.RECT,
+    val freeMask: FloatArray? = null,
+    val opacity: Int = 255,
+    val filter: ImageFilter = ImageFilter.NONE,
+    val brightness: Float = 0f,
+    val contrast: Float = 0f,
+    val saturation: Float = 0f,
+    val borderWidth: Float = 0f,
+    val borderColor: Int = android.graphics.Color.WHITE,
+    val shadow: Boolean = false,
+    override val locked: Boolean = false,
+    /** Página de PDF (informativo: aparece como "Página N" na barra). */
+    val pdfPage: Int = 0,
+) : Element() {
+
+    fun with(
+        file: String = this.file,
+        rect: RectF = this.rect,
+        rotation: Float = this.rotation,
+        flipH: Boolean = this.flipH,
+        flipV: Boolean = this.flipV,
+        crop: RectF = this.crop,
+        mask: ImageMask = this.mask,
+        freeMask: FloatArray? = this.freeMask,
+        opacity: Int = this.opacity,
+        filter: ImageFilter = this.filter,
+        brightness: Float = this.brightness,
+        contrast: Float = this.contrast,
+        saturation: Float = this.saturation,
+        borderWidth: Float = this.borderWidth,
+        borderColor: Int = this.borderColor,
+        shadow: Boolean = this.shadow,
+        locked: Boolean = this.locked,
+        pdfPage: Int = this.pdfPage,
+    ) = ImageElement(file, RectF(rect), normalizeAngle(rotation), flipH, flipV, RectF(crop), mask, freeMask, opacity,
+        filter, brightness, contrast, saturation, borderWidth, borderColor, shadow, locked, pdfPage)
+
+    val centerX get() = rect.centerX()
+    val centerY get() = rect.centerY()
+
+    /** Os 4 cantos do quadro já girado (x0,y0,...,x3,y3): sup-esq, sup-dir, inf-dir, inf-esq. */
+    fun corners(): FloatArray {
+        val t = Transform(rotation = rotation, ox = centerX, oy = centerY)
+        val xs = floatArrayOf(rect.left, rect.right, rect.right, rect.left)
+        val ys = floatArrayOf(rect.top, rect.top, rect.bottom, rect.bottom)
+        return FloatArray(8) { i -> if (i % 2 == 0) t.x(xs[i / 2], ys[i / 2]) else t.y(xs[i / 2], ys[i / 2]) }
+    }
+
+    override val bounds: RectF = run {
+        val c = corners()
+        val pad = borderWidth + 1f
+        RectF(
+            minOf(c[0], c[2], c[4], c[6]) - pad, minOf(c[1], c[3], c[5], c[7]) - pad,
+            maxOf(c[0], c[2], c[4], c[6]) + pad, maxOf(c[1], c[3], c[5], c[7]) + pad,
+        )
+    }
+
+    /** Converte um ponto do mundo para coordenadas locais (centro = 0,0, sem rotação). */
+    fun toLocal(px: Float, py: Float): Pair<Float, Float> {
+        val t = Transform(rotation = -rotation, ox = centerX, oy = centerY)
+        return (t.x(px, py) - centerX) to (t.y(px, py) - centerY)
+    }
+
+    fun contains(px: Float, py: Float): Boolean {
+        val (lx, ly) = toLocal(px, py)
+        return kotlin.math.abs(lx) <= rect.width() / 2f && kotlin.math.abs(ly) <= rect.height() / 2f
+    }
+
+    /** Quadro da imagem original inteira em coordenadas locais (para o modo de recorte). */
+    fun fullLocalFrame(): RectF {
+        val fw = rect.width() / crop.width()
+        val fh = rect.height() / crop.height()
+        val left = -rect.width() / 2f - crop.left * fw
+        val top = -rect.height() / 2f - crop.top * fh
+        return RectF(left, top, left + fw, top + fh)
+    }
+
+    /** Nova imagem mostrando [newCrop], mantendo a parte da imagem no mesmo lugar do mundo. */
+    fun withCrop(newCrop: RectF, newMask: ImageMask = mask, newFree: FloatArray? = freeMask): ImageElement {
+        val full = fullLocalFrame()
+        val l = full.left + newCrop.left * full.width()
+        val t = full.top + newCrop.top * full.height()
+        val r = full.left + newCrop.right * full.width()
+        val b = full.top + newCrop.bottom * full.height()
+        val lcx = (l + r) / 2f
+        val lcy = (t + b) / 2f
+        // Local -> mundo: gira o centro local e soma o centro atual
+        val rot = Transform(rotation = rotation)
+        val wcx = centerX + rot.x(lcx, lcy)
+        val wcy = centerY + rot.y(lcx, lcy)
+        val w = r - l
+        val h = b - t
+        return with(rect = RectF(wcx - w / 2f, wcy - h / 2f, wcx + w / 2f, wcy + h / 2f), crop = newCrop, mask = newMask, freeMask = newFree)
+    }
+
+    override fun transformed(t: Transform): ImageElement {
+        val ncx = t.x(centerX, centerY)
+        val ncy = t.y(centerX, centerY)
+        val w = rect.width() * t.scale / 2f
+        val h = rect.height() * t.scale / 2f
+        return with(
+            rect = RectF(ncx - w, ncy - h, ncx + w, ncy + h),
+            rotation = rotation + t.rotation,
+            borderWidth = borderWidth * t.scale,
+        )
+    }
+
+    override fun insideLasso(lasso: Lasso) = !locked && lasso.contains(centerX, centerY)
+
+    override fun touchesLasso(lasso: Lasso): Boolean {
+        if (locked) return false
+        val c = corners()
+        return lasso.touchesQuad(FloatArray(4) { c[it * 2] }, FloatArray(4) { c[it * 2 + 1] }) { px, py -> contains(px, py) }
+    }
+
+    companion object {
+        fun normalizeAngle(a: Float): Float {
+            var r = a % 360f
+            if (r > 180f) r -= 360f
+            if (r <= -180f) r += 360f
+            return r
+        }
+    }
+}
+
+/** Polígono do laço de seleção, em coordenadas do mundo. */
+class Lasso(private val xs: FloatArray, private val ys: FloatArray) {
+    companion object {
+        /** Retângulo de seleção entre dois cantos. */
+        fun rect(x0: Float, y0: Float, x1: Float, y1: Float) =
+            Lasso(floatArrayOf(x0, x1, x1, x0), floatArrayOf(y0, y0, y1, y1))
+    }
+
+    // (RectF.union(x, y) não serve aqui: com o retângulo "vazio" inicial ele só ajusta um lado.)
+    val bounds = RectF(
+        xs.minOrNull() ?: 0f, ys.minOrNull() ?: 0f,
+        xs.maxOrNull() ?: 0f, ys.maxOrNull() ?: 0f,
+    )
+
+    fun contains(px: Float, py: Float): Boolean {
+        if (!bounds.contains(px, py)) return false
+        var inside = false
+        var j = xs.size - 1
+        for (i in xs.indices) {
+            if ((ys[i] > py) != (ys[j] > py) &&
+                px < (xs[j] - xs[i]) * (py - ys[i]) / (ys[j] - ys[i]) + xs[i]
+            ) inside = !inside
+            j = i
+        }
+        return inside
+    }
+
+    /** Alguma aresta do laço cruza a linha (ou polígono, se [closed]) dada? */
+    fun crosses(px: FloatArray, py: FloatArray, n: Int, closed: Boolean): Boolean {
+        if (n < 2) return false
+        val m = xs.size
+        val segs = if (closed) n else n - 1
+        for (i in 0 until segs) {
+            val j = (i + 1) % n
+            val ax = px[i]; val ay = py[i]; val bx = px[j]; val by = py[j]
+            // Segmento fora da caixa do laço não cruza nada.
+            if (max(ax, bx) < bounds.left || kotlin.math.min(ax, bx) > bounds.right ||
+                max(ay, by) < bounds.top || kotlin.math.min(ay, by) > bounds.bottom
+            ) continue
+            var k = m - 1
+            for (l in 0 until m) {
+                if (Geometry.segmentsCross(ax, ay, bx, by, xs[k], ys[k], xs[l], ys[l])) return true
+                k = l
+            }
+        }
+        return false
+    }
+
+    /** Um quadrilátero encosta no laço: canto dentro do laço, laço dentro dele ou bordas que se cruzam. */
+    fun touchesQuad(qx: FloatArray, qy: FloatArray, quadContains: (Float, Float) -> Boolean): Boolean {
+        for (i in 0 until 4) if (contains(qx[i], qy[i])) return true
+        if (xs.isNotEmpty() && quadContains(xs[0], ys[0])) return true
+        return crosses(qx, qy, 4, closed = true)
+    }
+}
+
+object Geometry {
+    /** Os segmentos AB e CD se cruzam? */
+    fun segmentsCross(ax: Float, ay: Float, bx: Float, by: Float, cx: Float, cy: Float, dx: Float, dy: Float): Boolean {
+        fun cross(ox: Float, oy: Float, px: Float, py: Float, qx: Float, qy: Float) = (px - ox) * (qy - oy) - (py - oy) * (qx - ox)
+        val d1 = cross(cx, cy, dx, dy, ax, ay)
+        val d2 = cross(cx, cy, dx, dy, bx, by)
+        val d3 = cross(ax, ay, bx, by, cx, cy)
+        val d4 = cross(ax, ay, bx, by, dx, dy)
+        return ((d1 > 0f) != (d2 > 0f)) && ((d3 > 0f) != (d4 > 0f))
+    }
+
+    fun segmentDist(px: Float, py: Float, ax: Float, ay: Float, bx: Float, by: Float): Float {
+        val dx = bx - ax
+        val dy = by - ay
+        val len2 = dx * dx + dy * dy
+        if (len2 == 0f) return hypot(px - ax, py - ay)
+        val t = (((px - ax) * dx + (py - ay) * dy) / len2).coerceIn(0f, 1f)
+        return hypot(px - (ax + t * dx), py - (ay + t * dy))
+    }
+}
+
+// ---- Desfazer / refazer ----------------------------------------------------
+
+sealed class Op {
+    class Insert(val index: Int, val element: Element) : Op()
+    class Remove(val index: Int, val element: Element) : Op()
+}
+
+/** Uma ação do usuário = sequência de operações. Desfazer aplica o inverso, de trás para frente. */
+class EditAction(val ops: List<Op>) {
+    fun redo(list: MutableList<Element>) {
+        for (op in ops) when (op) {
+            is Op.Insert -> list.add(op.index.coerceIn(0, list.size), op.element)
+            is Op.Remove -> list.remove(op.element)
+        }
+    }
+
+    fun undo(list: MutableList<Element>) {
+        for (op in ops.asReversed()) when (op) {
+            is Op.Insert -> list.remove(op.element)
+            is Op.Remove -> list.add(op.index.coerceIn(0, list.size), op.element)
+        }
+    }
+}

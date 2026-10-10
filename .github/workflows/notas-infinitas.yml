@@ -1,0 +1,26 @@
+name: Limpeza
+
+on:
+  push:
+    paths:
+      - ".github/workflows/notas-infinitas.yml"
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  limpar:
+    runs-on: ubuntu-latest
+    steps:
+      # Apaga o histórico de execuções deste workflow (o app foi para outro repositório).
+      - name: Apagar execuções antigas
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh api "repos/$REPO/actions/workflows/notas-infinitas.yml/runs" --paginate --jq '.workflow_runs[].id' \
+            | grep -v "^${GITHUB_RUN_ID}$" \
+            | xargs -r -I{} gh api -X DELETE "repos/$REPO/actions/runs/{}"
+          gh api "repos/$REPO/actions/artifacts" --paginate --jq '.artifacts[] | select(.workflow_run.head_branch == "claude/wonderful-thompson-221iwh") | .id' \
+            | xargs -r -I{} gh api -X DELETE "repos/$REPO/actions/artifacts/{}"
