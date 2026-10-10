@@ -1,4 +1,4 @@
-name: Notas Infinitas (APK Android)
+name: TonyNotes (APK Android)
 
 on:
   push:
@@ -35,7 +35,7 @@ jobs:
       - name: Publicar APK
         uses: actions/upload-artifact@v4
         with:
-          name: notas-infinitas-apk
+          name: tonynotes-apk
           path: notas-infinitas/app/build/outputs/apk/debug/*.apk
 
       - name: Testes de funcionamento

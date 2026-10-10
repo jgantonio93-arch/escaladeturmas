@@ -93,6 +93,41 @@ class ScreenshotTest {
         canvas.select(txt)
         canvas.rotateSelection(-8f)
         save(snap(editor), "12-texto-selecionado")
+        canvas.clearSelection()
+
+        // Marca-texto: transparência, tamanho, espessura da ponta e linhas retas
+        canvas.pen = PenSettings.default(BrushType.HIGHLIGHTER, Color.parseColor("#FFE600"))
+        canvas.tool = InfiniteCanvasView.Tool.PEN
+        editor.openPenTray()
+        save(snap(editor), "13-bandeja-marca-texto")
+
+        // Seleção: laço ou retângulo, e objetos parcialmente selecionados
+        canvas.tool = InfiniteCanvasView.Tool.SELECT
+        editor.openSelectTray()
+        save(snap(editor), "14-bandeja-selecao")
+        editor.closeTrayForTests()
+
+        // Barra em pé na esquerda, com as 3 cores rápidas
+        canvas.pen = PenSettings.default(BrushType.PEN, Color.parseColor("#1B1B1F"))
+        canvas.tool = InfiniteCanvasView.Tool.PEN
+        editor.prefsForTests.dockMode = "left"
+        editor.relayoutDockForTests()
+        save(snap(editor), "15-barra-esquerda")
+        editor.prefsForTests.dockMode = "top"
+        editor.relayoutDockForTests()
+
+        // Folhas: a nota de exercícios vira folhas verticais (infinitas)
+        val lista = Library.notesIn(escola.id).first { it.title == "Lista de exercícios" }
+        val folhas = Robolectric.buildActivity(EditorActivity::class.java,
+            Intent(app, EditorActivity::class.java).putExtra(EditorActivity.EXTRA_NOTE, lista.id)).setup().get()
+        val fc = folhas.canvasForTests
+        fc.setPageLayout(true, false, false, true, 1)
+        fc.pageStyle = PageStyle.LINES
+        save(snap(folhas), "16-folhas-verticais")
+        Panels.showPage(folhas, fc, folhas.prefsForTests) {}
+        save(withDialog(folhas), "17-pagina")
+        fc.setPageLayout(true, true, true, true, 1)
+        save(snap(folhas), "18-folhas-horizontais")
     }
 
     // ---- Captura ---------------------------------------------------------------------
@@ -222,7 +257,7 @@ class ScreenshotTest {
     }
 
     private fun writeNote(app: android.content.Context, n: NoteInfo, elements: List<Element>) {
-        val data = NoteData(elements, ViewState(60f, 80f, 1.15f), PageStyle.DOTS, Color.WHITE)
+        val data = NoteData(elements, ViewState(60f, 230f, 1.15f), PageStyle.DOTS, Color.WHITE)
         NoteStorage.save(Library.noteFile(n.id), data)
         val view = InfiniteCanvasView(app)
         view.assetDir = Library.assetsDir(n.id)

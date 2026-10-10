@@ -147,9 +147,14 @@ class SizeSlider(context: Context, min: Float, max: Float, value: Float, onChang
     }
 }
 
-/** Slider de opacidade: xadrez + degradê do transparente à cor. */
-class OpacitySlider(context: Context, min: Float, max: Float, value: Float, onChange: (Float) -> Unit) :
-    FancySlider(context, min, max, value, onChange) {
+/**
+ * Slider de opacidade: xadrez + degradê do transparente à cor.
+ * Com [reversed], vai da cor ao transparente (slider de transparência).
+ */
+class OpacitySlider(
+    context: Context, min: Float, max: Float, value: Float,
+    private val reversed: Boolean = false, onChange: (Float) -> Unit,
+) : FancySlider(context, min, max, value, onChange) {
     var color = Color.BLACK
         set(v) { field = v; invalidate() }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -177,7 +182,9 @@ class OpacitySlider(context: Context, min: Float, max: Float, value: Float, onCh
             x += sq; col++
         }
         val opaque = color or (0xFF shl 24)
-        paint.shader = LinearGradient(r.left, 0f, r.right, 0f, opaque and 0x00FFFFFF, opaque, Shader.TileMode.CLAMP)
+        val clear = opaque and 0x00FFFFFF
+        paint.shader = LinearGradient(r.left, 0f, r.right, 0f,
+            if (reversed) opaque else clear, if (reversed) clear else opaque, Shader.TileMode.CLAMP)
         canvas.drawRect(r, paint)
         paint.shader = null
         canvas.restore()
@@ -271,7 +278,10 @@ class PenPreview(context: Context, pen: PenSettings) : View(context) {
             val p = 0.35f + 0.65f * kotlin.math.sin(f * Math.PI).toFloat()
             b.add(x, y, p, 0.5f)
         }
+        val z = StrokeRenderer.zoom
+        StrokeRenderer.zoom = 1f
         StrokeRenderer.drawElement(canvas, b.build())
+        StrokeRenderer.zoom = z
     }
 }
 

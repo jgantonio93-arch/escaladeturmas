@@ -21,6 +21,9 @@ sealed class Element {
 
     abstract fun insideLasso(lasso: Lasso): Boolean
 
+    /** "Incluir objetos parcialmente selecionados": basta encostar no laço. */
+    abstract fun touchesLasso(lasso: Lasso): Boolean
+
     /** Elementos travados não são selecionados pelo laço, movidos ou apagados. */
     open val locked: Boolean get() = false
 }
@@ -79,7 +82,8 @@ class StrokeElement(
 
     val n get() = xs.size
 
-    val uniform: Boolean = ws.isNotEmpty() && ws.all { abs(it - ws[0]) < 0.01f }
+    /** Espessura constante: desenha como linha. O marca-texto (ponta chanfrada) é sempre contorno. */
+    val uniform: Boolean = type != BrushType.HIGHLIGHTER && ws.isNotEmpty() && ws.all { abs(it - ws[0]) < 0.01f }
 
     override val bounds: RectF = RectF(Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE).also { r ->
         for (i in xs.indices) {
@@ -91,7 +95,7 @@ class StrokeElement(
 
     private var cachedPath: Path? = null
     val path: Path
-        get() = cachedPath ?: StrokeRenderer.buildPath(xs, ys, ws, n, uniform).also { cachedPath = it }
+        get() = cachedPath ?: StrokeRenderer.buildPath(xs, ys, ws, n, uniform, flatCaps = type == BrushType.HIGHLIGHTER).also { cachedPath = it }
 
     fun withColor(c: Int) = StrokeElement(type, c, alpha, xs, ys, ws)
 
@@ -170,6 +174,12 @@ class StrokeElement(
             i += stepI
         }
         return inside * 2 >= total
+    }
+
+    override fun touchesLasso(lasso: Lasso): Boolean {
+        if (!RectF.intersects(bounds, lasso.bounds)) return false
+        for (i in 0 until n) if (lasso.contains(xs[i], ys[i])) return true
+        return lasso.crosses(xs, ys, n, closed = false)
     }
 }
 
@@ -339,6 +349,14 @@ class TextElement(
 
     override fun insideLasso(lasso: Lasso) = lasso.contains(centerX, centerY)
 
+    override fun touchesLasso(lasso: Lasso): Boolean {
+        val t = Transform(rotation = rotation, ox = centerX, oy = centerY)
+        val p = pad
+        val lx = floatArrayOf(x - p, x + boxWidth + p, x + boxWidth + p, x - p)
+        val ly = floatArrayOf(y - p, y - p, y + boxHeight + p, y + boxHeight + p)
+        return lasso.touchesQuad(FloatArray(4) { t.x(lx[it], ly[it]) }, FloatArray(4) { t.y(lx[it], ly[it]) }) { px, py -> contains(px, py) }
+    }
+
     /** Mesmo centro, novo conteúdo/estilo (usado ao terminar de editar). */
     fun keepingCenterOf(old: TextElement): TextElement {
         if (old.rotation == 0f && !old.flipH && !old.flipV) return with(x = old.x, y = old.y)
@@ -475,6 +493,12 @@ class ImageElement(
 
     override fun insideLasso(lasso: Lasso) = !locked && lasso.contains(centerX, centerY)
 
+    override fun touchesLasso(lasso: Lasso): Boolean {
+        if (locked) return false
+        val c = corners()
+        return lasso.touchesQuad(FloatArray(4) { c[it * 2] }, FloatArray(4) { c[it * 2 + 1] }) { px, py -> contains(px, py) }
+    }
+
     companion object {
         fun normalizeAngle(a: Float): Float {
             var r = a % 360f
@@ -487,6 +511,12 @@ class ImageElement(
 
 /** Polígono do laço de seleção, em coordenadas do mundo. */
 class Lasso(private val xs: FloatArray, private val ys: FloatArray) {
+    companion object {
+        /** Retângulo de seleção entre dois cantos. */
+        fun rect(x0: Float, y0: Float, x1: Float, y1: Float) =
+            Lasso(floatArrayOf(x0, x1, x1, x0), floatArrayOf(y0, y0, y1, y1))
+    }
+
     // (RectF.union(x, y) não serve aqui: com o retângulo "vazio" inicial ele só ajusta um lado.)
     val bounds = RectF(
         xs.minOrNull() ?: 0f, ys.minOrNull() ?: 0f,
@@ -505,9 +535,47 @@ class Lasso(private val xs: FloatArray, private val ys: FloatArray) {
         }
         return inside
     }
+
+    /** Alguma aresta do laço cruza a linha (ou polígono, se [closed]) dada? */
+    fun crosses(px: FloatArray, py: FloatArray, n: Int, closed: Boolean): Boolean {
+        if (n < 2) return false
+        val m = xs.size
+        val segs = if (closed) n else n - 1
+        for (i in 0 until segs) {
+            val j = (i + 1) % n
+            val ax = px[i]; val ay = py[i]; val bx = px[j]; val by = py[j]
+            // Segmento fora da caixa do laço não cruza nada.
+            if (max(ax, bx) < bounds.left || kotlin.math.min(ax, bx) > bounds.right ||
+                max(ay, by) < bounds.top || kotlin.math.min(ay, by) > bounds.bottom
+            ) continue
+            var k = m - 1
+            for (l in 0 until m) {
+                if (Geometry.segmentsCross(ax, ay, bx, by, xs[k], ys[k], xs[l], ys[l])) return true
+                k = l
+            }
+        }
+        return false
+    }
+
+    /** Um quadrilátero encosta no laço: canto dentro do laço, laço dentro dele ou bordas que se cruzam. */
+    fun touchesQuad(qx: FloatArray, qy: FloatArray, quadContains: (Float, Float) -> Boolean): Boolean {
+        for (i in 0 until 4) if (contains(qx[i], qy[i])) return true
+        if (xs.isNotEmpty() && quadContains(xs[0], ys[0])) return true
+        return crosses(qx, qy, 4, closed = true)
+    }
 }
 
 object Geometry {
+    /** Os segmentos AB e CD se cruzam? */
+    fun segmentsCross(ax: Float, ay: Float, bx: Float, by: Float, cx: Float, cy: Float, dx: Float, dy: Float): Boolean {
+        fun cross(ox: Float, oy: Float, px: Float, py: Float, qx: Float, qy: Float) = (px - ox) * (qy - oy) - (py - oy) * (qx - ox)
+        val d1 = cross(cx, cy, dx, dy, ax, ay)
+        val d2 = cross(cx, cy, dx, dy, bx, by)
+        val d3 = cross(ax, ay, bx, by, cx, cy)
+        val d4 = cross(ax, ay, bx, by, dx, dy)
+        return ((d1 > 0f) != (d2 > 0f)) && ((d3 > 0f) != (d4 > 0f))
+    }
+
     fun segmentDist(px: Float, py: Float, ax: Float, ay: Float, bx: Float, by: Float): Float {
         val dx = bx - ax
         val dy = by - ay

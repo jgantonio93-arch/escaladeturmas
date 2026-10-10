@@ -382,4 +382,131 @@ class FunctionalTest {
 
     private fun findAll(v: View): List<View> =
         if (v is android.view.ViewGroup) listOf(v) + (0 until v.childCount).flatMap { findAll(v.getChildAt(it)) } else listOf(v)
+
+    // ---- Seleção por retângulo e parcial --------------------------------------------------
+
+    @Test
+    fun selecao_retangulo_e_parcial() {
+        drag(line(300f, 700f, 600f, 700f))      // A
+        drag(line(550f, 950f, 950f, 950f))      // B (fica metade fora do retângulo grande)
+        canvas.tool = InfiniteCanvasView.Tool.SELECT
+        canvas.selectRect = true
+        drag(line(250f, 640f, 650f, 760f, 10))
+        assertEquals("retângulo pequeno pega só A", 1, canvas.selectedItems.size)
+        canvas.clearSelection()
+        drag(line(250f, 640f, 700f, 1000f, 10))
+        assertEquals("B só encosta: fica de fora", 1, canvas.selectedItems.size)
+        canvas.clearSelection()
+        canvas.selectPartial = true
+        drag(line(250f, 640f, 700f, 1000f, 10))
+        assertEquals("parcial: B entra", 2, canvas.selectedItems.size)
+        canvas.clearSelection()
+        // Laço que só cruza o meio da linha B (nenhum ponto de B dentro)
+        canvas.selectRect = false
+        drag(listOf(740f to 900f, 760f to 900f, 760f to 1000f, 740f to 1000f, 741f to 905f))
+        assertEquals(1, canvas.selectedItems.size)
+    }
+
+    // ---- Marca-texto -------------------------------------------------------------------------
+
+    @Test
+    fun marca_texto_linha_reta_e_ponta_chanfrada() {
+        canvas.pen = PenSettings.default(BrushType.HIGHLIGHTER, Color.YELLOW).copy(straight = true)
+        drag((0..30).map { 200f + it * 20f to 700f + (if (it % 2 == 0) 12f else -12f) + it * 0.5f })
+        val s = strokes().single()
+        assertEquals("linha reta: só começo e fim", 2, s.n)
+        assertEquals("quase horizontal vira horizontal", s.ys[0], s.ys[1], 0.01f)
+
+        canvas.pen = PenSettings.default(BrushType.HIGHLIGHTER, Color.YELLOW).copy(tip = 20)
+        drag(line(500f, 900f, 500f, 1400f))
+        val v = strokes().last()
+        val full = canvas.pen.size * canvas.unit
+        assertTrue("na vertical a faixa fica fina: ${v.ws[v.n / 2]} vs $full", v.ws[v.n / 2] < full * 0.4f)
+
+        // Opções salvas e relidas
+        val p = PenSettings.decode(canvas.pen.copy(opacity = 30, straight = true).encode())!!
+        assertEquals(20, p.tip)
+        assertEquals(30, p.opacity)
+        assertTrue(p.straight)
+        assertEquals(PenSettings(BrushType.PEN, 1, 4f, 100), PenSettings.decode("PEN,1,4.0,100"))
+    }
+
+    @Test
+    fun lapis_desenha_com_textura() {
+        canvas.pen = PenSettings.default(BrushType.PENCIL, Color.BLACK).copy(size = 12f)
+        drag(line(200f, 700f, 900f, 700f))
+        assertEquals(1, strokes().size)
+        val bmp = canvas.renderToBitmap(800, 800)!!
+        var ink = 0
+        for (x in 0 until bmp.width step 2) for (y in 0 until bmp.height step 2) {
+            if (Color.red(bmp.getPixel(x, y)) < 160) ink++
+        }
+        assertTrue("o lápis deixa marca ($ink pixels)", ink > 50)
+    }
+
+    // ---- Barra de ferramentas ----------------------------------------------------------------
+
+    private fun dragGrip(dx: Float, dy: Float) {
+        val grip = editor.dockGripForTests
+        val down = time
+        val x = 10f
+        val y = 10f
+        grip.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, listOf(x to y), MotionEvent.TOOL_TYPE_FINGER, down))
+        for (k in 1..8) grip.dispatchTouchEvent(event(MotionEvent.ACTION_MOVE, listOf(x + dx * k / 8 to y + dy * k / 8), MotionEvent.TOOL_TYPE_FINGER, down))
+        grip.dispatchTouchEvent(event(MotionEvent.ACTION_UP, listOf(x + dx to y + dy), MotionEvent.TOOL_TYPE_FINGER, down))
+        ShadowLooper.idleMainLooper()
+        layout()
+    }
+
+    @Test
+    fun barra_arrasta_para_esquerda_fica_em_pe_com_3_cores() {
+        dragGrip(-2000f, 600f)
+        assertEquals("left", editor.prefsForTests.dockMode)
+        assertEquals(android.widget.LinearLayout.VERTICAL, editor.dockForTests.orientation)
+        val dots = (0 until editor.quickColorsForTests.childCount).map { editor.quickColorsForTests.getChildAt(it) }.filterIsInstance<ColorDot>()
+        assertEquals(3, dots.size)
+        dots[1].performClick()
+        assertEquals(editor.prefsForTests.quickColors[1], canvas.pen.color)
+        assertTrue("barra encostada na esquerda", editor.dockForTests.left < 40)
+
+        // Arrastar para o meio: volta a ficar deitada, solta onde foi largada
+        dragGrip(500f, 0f)
+        assertEquals("free", editor.prefsForTests.dockMode)
+        assertEquals(android.widget.LinearLayout.HORIZONTAL, editor.dockForTests.orientation)
+        assertEquals(View.GONE, editor.quickColorsForTests.visibility)
+    }
+
+    // ---- Folhas ----------------------------------------------------------------------------
+
+    @Test
+    fun folhas_infinitas_fixas_e_salvas() {
+        canvas.setPageLayout(true, false, false, true, 1)
+        assertTrue(canvas.pageLayout.hasPages)
+        assertEquals(1, canvas.pageCount)
+        drag(line(300f, 700f, 600f, 700f))
+        assertEquals("sempre uma folha em branco no fim", 2, canvas.pageCount)
+        val p1 = canvas.pageLayout.pageRect(1)
+        canvas.addText(TextElement("folha 2", p1.left + 20f, p1.top + 20f, 40f, Color.BLACK))
+        assertEquals(3, canvas.pageCount)
+        assertEquals(2, canvas.usedPageRects().size)
+
+        canvas.setPageLayout(true, false, false, false, 2)
+        assertEquals(2, canvas.pageCount)
+
+        canvas.setPageLayout(true, true, true, false, 2)
+        val l = canvas.pageLayout
+        assertTrue("paisagem: mais larga que alta", l.w > l.h)
+        assertTrue("lado a lado", canvas.pageLayout.pageRect(1).left > canvas.pageLayout.pageRect(0).right)
+
+        controller.pause().stop().destroy()
+        Library.io.submit {}.get()
+        openEditor()
+        val r = canvas.pageLayout
+        assertTrue(r.hasPages && r.horizontal && r.landscape && !r.endless)
+        assertEquals(2, canvas.pageCount)
+        assertEquals(2, items().size)
+
+        canvas.setPageLayout(false, false, false, true, 1)
+        assertEquals(0, canvas.pageCount)
+    }
 }

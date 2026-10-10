@@ -43,6 +43,40 @@ class PenPrefs(context: Context) {
         get() = sp.getBoolean("eraser_hl", false)
         set(v) = sp.edit().putBoolean("eraser_hl", v).apply()
 
+    var selectRect: Boolean
+        get() = sp.getBoolean("select_rect", false)
+        set(v) = sp.edit().putBoolean("select_rect", v).apply()
+
+    var selectPartial: Boolean
+        get() = sp.getBoolean("select_partial", false)
+        set(v) = sp.edit().putBoolean("select_partial", v).apply()
+
+    /** Onde fica a barra de ferramentas: "top" (padrão), "free", "left" ou "right". */
+    var dockMode: String
+        get() = sp.getString("dock_mode", "top")!!
+        set(v) = sp.edit().putString("dock_mode", v).apply()
+
+    /** Posição da barra solta (fração da área da nota, 0..1). */
+    var dockX: Float
+        get() = sp.getFloat("dock_x", 0.5f)
+        set(v) = sp.edit().putFloat("dock_x", v).apply()
+    var dockY: Float
+        get() = sp.getFloat("dock_y", 0f)
+        set(v) = sp.edit().putFloat("dock_y", v).apply()
+
+    /** As 3 cores rápidas da barra vertical (podem ser trocadas com toque longo). */
+    var quickColors: List<Int>
+        get() {
+            val saved = sp.getString("quick_colors", "")!!.split(',').mapNotNull { it.toIntOrNull() }
+            return if (saved.size == 3) saved else listOf(INK_COLORS[0], INK_COLORS[3], INK_COLORS[8])
+        }
+        set(v) = sp.edit().putString("quick_colors", v.take(3).joinToString(",")).apply()
+
+    /** Modo de página das notas novas (o último escolhido). */
+    var defaultPageLayout: String?
+        get() = sp.getString("page_layout", null)
+        set(v) = sp.edit().putString("page_layout", v).apply()
+
     var fingerDraws: Boolean
         get() = sp.getBoolean("finger_draws", false)
         set(v) = sp.edit().putBoolean("finger_draws", v).apply()

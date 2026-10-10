@@ -1,4 +1,4 @@
-# Notas Infinitas
+# TonyNotes
 
 App Android (Kotlin) de anotações à mão com **tela infinita na horizontal e na vertical**,
 pensado para a S Pen dos Galaxy.
@@ -76,7 +76,7 @@ DESIGN.md do Notion (Awesome Design): papel quente, um único acento cor de tint
 Todos os pares de texto/fundo passam no contraste WCAG AA (auditado com o Playwright CLI).
 
 ## Como instalar
-O APK é gerado pelo GitHub Actions (workflow `Notas Infinitas (APK Android)`):
+O APK é gerado pelo GitHub Actions (workflow `TonyNotes (APK Android)`):
 abra a execução mais recente na aba **Actions**, baixe o artefato `notas-infinitas-apk`,
 descompacte e instale o `.apk` no celular (permita "instalar apps desconhecidos").
 

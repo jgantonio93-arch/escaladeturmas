@@ -61,6 +61,12 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
     private lateinit var canvasView: InfiniteCanvasView
     internal val canvasForTests get() = canvasView
     internal val textEditorForTests get() = textEditor
+    internal val dockForTests get() = dock
+    internal val dockGripForTests get() = dockGrip
+    internal val quickColorsForTests get() = quickColorsBox
+    internal val prefsForTests get() = prefs
+    internal fun relayoutDockForTests() = layoutDock()
+    internal fun closeTrayForTests() = closeTray()
 
     private lateinit var titleView: TextView
     private lateinit var subtitleView: TextView
@@ -81,6 +87,8 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
     private lateinit var favoritesBox: LinearLayout
     private lateinit var colorDivider: View
     private lateinit var emptyHint: View
+    private lateinit var hintTitle: TextView
+    private lateinit var hintBody: TextView
     private var openTray: String? = null
 
     private val main = Handler(Looper.getMainLooper())
@@ -159,11 +167,13 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
             addView(ImageView(this@EditorActivity).apply {
                 setImageDrawable(PenGlyphDrawable(BrushType.FOUNTAIN, Ui.ACCENT, dpi(56f), dp(1.2f)))
             }, LinearLayout.LayoutParams(dpi(56f), dpi(56f)))
-            addView(label("Escreva em qualquer direção", 17f, Ui.INK, bold = true).apply { setPadding(0, dpi(12f), 0, dpi(4f)) })
-            addView(label("A nota não tem fim: role para os lados e para baixo.\nUse dois dedos para mover e dar zoom.", 14f).apply {
+            hintTitle = label("", 17f, Ui.INK, bold = true).apply { setPadding(0, dpi(12f), 0, dpi(4f)) }
+            hintBody = label("", 14f).apply {
                 gravity = Gravity.CENTER
                 setLineSpacing(0f, 1.2f)
-            })
+            }
+            addView(hintTitle)
+            addView(hintBody)
         }
         stage.addView(emptyHint, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
 
@@ -177,9 +187,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         stage.addView(trayLayer, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         dock = buildDock()
-        stage.addView(dock, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
-            topMargin = dpi(10f)
-        })
+        stage.addView(dock)
 
         root.addView(stage, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
@@ -191,8 +199,17 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
             if (bottom - top != oldBottom - oldTop && textEditor.isActive) stage.post { textEditor.keepVisible() }
         }
 
-        NoteStorage.load(Library.noteFile(note.id))?.let { canvasView.load(it) }
-        refresh()
+        val saved = NoteStorage.load(Library.noteFile(note.id))
+        if (saved != null) canvasView.load(saved)
+        else PageLayout.decodePref(prefs.defaultPageLayout)?.takeIf { it.paged }?.let { l ->
+            // Nota nova: começa no último modo de página escolhido.
+            canvasView.setPageLayout(true, l.horizontal, l.landscape, l.endless, 1)
+        }
+        layoutDock()
+        // A barra solta depende do tamanho da área da nota.
+        stage.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or, ob ->
+            if ((r - l != or - ol || b - t != ob - ot) && prefs.dockMode == "free") stage.post { layoutDock() }
+        }
         intent.getStringExtra(EXTRA_PDF)?.let { u ->
             intent.removeExtra(EXTRA_PDF)
             // Espera a tela ter tamanho para enquadrar as páginas.
@@ -224,6 +241,8 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         canvasView.eraserSize = prefs.eraserSize
         canvasView.eraserHighlighterOnly = prefs.eraserHighlighterOnly
         canvasView.lowLatency = prefs.lowLatency
+        canvasView.selectRect = prefs.selectRect
+        canvasView.selectPartial = prefs.selectPartial
     }
 
     /** Pede a maior taxa de atualização da tela (ex.: 120 Hz): a tinta acompanha a caneta mais de perto. */
@@ -277,6 +296,15 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
     }
 
     // ---- Dock de ferramentas ------------------------------------------------------------
+    //
+    // A barra flutua sobre a nota e pode ser arrastada pela alça (⋮⋮) para qualquer lugar.
+    // Solta perto da borda esquerda ou direita, ela fica em pé, como no Samsung Notes,
+    // e mostra 3 cores rápidas (toque longo numa cor para trocá-la).
+
+    private lateinit var dockGrip: ImageView
+    private lateinit var quickColorsBox: LinearLayout
+    private val toolsInDock = ArrayList<View>()
+    private val dockVertical get() = prefs.dockMode == "left" || prefs.dockMode == "right"
 
     private fun toolButton(d: Drawable, desc: String = "", onClick: () -> Unit) = ImageView(this).apply {
         setImageDrawable(d)
@@ -292,34 +320,203 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         layoutParams = LinearLayout.LayoutParams(dpi(1f), dpi(24f)).apply { setMargins(dpi(6f), 0, dpi(6f), 0) }
     }
 
+    /** Divisória que acompanha a orientação da barra. */
+    private fun orientDivider(v: View) {
+        v.layoutParams = if (dockVertical) LinearLayout.LayoutParams(dpi(24f), dpi(1f)).apply { setMargins(0, dpi(6f), 0, dpi(6f)) }
+        else LinearLayout.LayoutParams(dpi(1f), dpi(24f)).apply { setMargins(dpi(6f), 0, dpi(6f), 0) }
+    }
+
     private fun buildDock(): LinearLayout {
         val bar = horizontal().apply {
-            setPadding(dpi(6f), dpi(5f), dpi(6f), dpi(5f))
+            setPadding(dpi(4f), dpi(5f), dpi(6f), dpi(5f))
             background = pill(Ui.SURFACE, Color.parseColor("#EEF0F3"))
             Ui.run { softShadow(10f) }
             isClickable = true
         }
+        dockGrip = ImageView(this).apply {
+            setImageDrawable(IconDrawable(Icon.GRIP, Color.parseColor("#A39E94"), dpi(20f), dp(1.6f)))
+            scaleType = ImageView.ScaleType.CENTER
+            contentDescription = "Arrastar barra (toque para mais opções)"
+            setOnTouchListener(DockDrag())
+        }
+        bar.addView(dockGrip)
         penToolButton = toolButton(PenGlyphDrawable(canvasView.pen.type, canvasView.pen.color, dpi(30f), dp(1f))) {
             if (canvasView.tool == InfiniteCanvasView.Tool.PEN) toggleTray("pen") else setTool(InfiniteCanvasView.Tool.PEN)
         }
         toolButtons[InfiniteCanvasView.Tool.PEN] = penToolButton
-        bar.addView(penToolButton)
         toolButtons[InfiniteCanvasView.Tool.ERASER] = toolButton(icon(Icon.ERASER), "Borracha") {
             if (canvasView.tool == InfiniteCanvasView.Tool.ERASER) toggleTray("eraser") else setTool(InfiniteCanvasView.Tool.ERASER)
-        }.also { bar.addView(it) }
-        toolButtons[InfiniteCanvasView.Tool.SELECT] = toolButton(icon(Icon.LASSO), "Seleção") { setTool(InfiniteCanvasView.Tool.SELECT) }.also { bar.addView(it) }
-        toolButtons[InfiniteCanvasView.Tool.TEXT] = toolButton(icon(Icon.TEXT), "Texto") { setTool(InfiniteCanvasView.Tool.TEXT) }.also { bar.addView(it) }
-        bar.addView(toolButton(icon(Icon.IMAGE), "Inserir imagem ou PDF") { finishTyping(); closeTray(); showInsertMenu() })
+        }
+        toolButtons[InfiniteCanvasView.Tool.SELECT] = toolButton(icon(if (prefs.selectRect) Icon.RECT_SELECT else Icon.LASSO), "Seleção") {
+            if (canvasView.tool == InfiniteCanvasView.Tool.SELECT) toggleTray("select") else setTool(InfiniteCanvasView.Tool.SELECT)
+        }
+        toolButtons[InfiniteCanvasView.Tool.TEXT] = toolButton(icon(Icon.TEXT), "Texto") { setTool(InfiniteCanvasView.Tool.TEXT) }
+        toolsInDock.clear()
+        toolsInDock.addAll(toolButtons.values)
+        toolsInDock.add(toolButton(icon(Icon.IMAGE), "Inserir imagem ou PDF") { finishTyping(); closeTray(); showInsertMenu() })
+        toolsInDock.forEach { bar.addView(it) }
         colorDivider = dockDivider()
         bar.addView(colorDivider)
         colorDot = ColorDot(this, canvasView.pen.color, false) {
             if (canvasView.tool != InfiniteCanvasView.Tool.PEN) setTool(InfiniteCanvasView.Tool.PEN)
             toggleTray("pen")
-        }
+        }.apply { contentDescription = "Cor e caneta" }
         bar.addView(colorDot, LinearLayout.LayoutParams(dpi(30f), dpi(30f)).apply { setMargins(dpi(6f), 0, dpi(6f), 0) })
+        quickColorsBox = vertical().apply { gravity = Gravity.CENTER_HORIZONTAL }
+        bar.addView(quickColorsBox)
         favoritesBox = horizontal()
         bar.addView(favoritesBox)
         return bar
+    }
+
+    /** Aplica a orientação e o lugar da barra conforme [PenPrefs.dockMode]. */
+    private fun layoutDock(animateFrom: Pair<Float, Float>? = null) {
+        val vertical = dockVertical
+        dock.orientation = if (vertical) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+        dock.gravity = Gravity.CENTER
+        dock.setPadding(if (vertical) dpi(5f) else dpi(4f), if (vertical) dpi(4f) else dpi(5f), dpi(5f), if (vertical) dpi(8f) else dpi(5f))
+        dock.background = pill(Ui.SURFACE, Color.parseColor("#EEF0F3"), if (vertical) 30f else 100f)
+        dockGrip.layoutParams = if (vertical) LinearLayout.LayoutParams(dpi(46f), dpi(24f)) else LinearLayout.LayoutParams(dpi(24f), dpi(46f))
+        val toolLp = { LinearLayout.LayoutParams(dpi(46f), dpi(46f)).apply {
+            if (vertical) setMargins(0, dpi(1f), 0, dpi(1f)) else setMargins(dpi(1f), 0, dpi(1f), 0)
+        } }
+        toolsInDock.forEach { it.layoutParams = toolLp() }
+        orientDivider(colorDivider)
+        favoritesBox.orientation = dock.orientation
+        quickColorsBox.visibility = if (vertical) View.VISIBLE else View.GONE
+
+        val lp = FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        val edge = dpi(8f)
+        when (prefs.dockMode) {
+            "left" -> { lp.gravity = Gravity.START or Gravity.CENTER_VERTICAL; lp.marginStart = edge }
+            "right" -> { lp.gravity = Gravity.END or Gravity.CENTER_VERTICAL; lp.marginEnd = edge }
+            "free" -> {
+                lp.gravity = Gravity.TOP or Gravity.START
+                dock.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+                val w = dock.measuredWidth
+                val h = dock.measuredHeight
+                val sw = stage.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+                val sh = stage.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
+                lp.leftMargin = (prefs.dockX * sw - w / 2f).toInt().coerceIn(edge, max(edge, sw - w - edge))
+                lp.topMargin = (prefs.dockY * sh - h / 2f).toInt().coerceIn(edge, max(edge, sh - h - edge))
+            }
+            else -> { lp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; lp.topMargin = dpi(10f) }
+        }
+        dock.layoutParams = lp
+        dock.translationX = 0f
+        dock.translationY = 0f
+        if (animateFrom != null) {
+            // Desliza do ponto onde foi solta até o lugar final.
+            dock.post {
+                dock.translationX = animateFrom.first - dock.left
+                dock.translationY = animateFrom.second - dock.top
+                if (Ui.animationsOn()) dock.animate().translationX(0f).translationY(0f).setDuration(260).setInterpolator(Ui.EASE).start()
+                else { dock.translationX = 0f; dock.translationY = 0f }
+            }
+        }
+        refresh()
+    }
+
+    /** Arrastar a barra pela alça; um toque simples abre as opções de posição. */
+    private inner class DockDrag : View.OnTouchListener {
+        private var rawX0 = 0f
+        private var rawY0 = 0f
+        private var dragging = false
+        private val slop = android.view.ViewConfiguration.get(this@EditorActivity).scaledTouchSlop
+
+        @SuppressLint("ClickableViewAccessibility")
+        override fun onTouch(v: View, e: MotionEvent): Boolean {
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    rawX0 = e.rawX; rawY0 = e.rawY
+                    dragging = false
+                    dock.animate().cancel()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = e.rawX - rawX0
+                    val dy = e.rawY - rawY0
+                    if (!dragging && kotlin.math.hypot(dx, dy) > slop) {
+                        dragging = true
+                        closeTray()
+                        dock.animate().scaleX(1.04f).scaleY(1.04f).setDuration(120).start()
+                    }
+                    if (dragging) {
+                        dock.translationX = dx
+                        dock.translationY = dy
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (dragging) dropDock() else showDockMenu()
+                    dragging = false
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    if (dragging) dropDock()
+                    dragging = false
+                }
+            }
+            return true
+        }
+    }
+
+    private fun dropDock() {
+        dock.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+        val left = dock.left + dock.translationX
+        val top = dock.top + dock.translationY
+        val cx = left + dock.width / 2f
+        val cy = top + dock.height / 2f
+        val sw = stage.width.toFloat()
+        val sh = stage.height.toFloat()
+        val zone = dp(64f)
+        prefs.dockMode = when {
+            cx < zone || left < dp(4f) -> "left"
+            cx > sw - zone || left + dock.width > sw - dp(4f) -> "right"
+            top < dp(28f) && kotlin.math.abs(cx - sw / 2f) < dp(56f) -> "top"
+            else -> "free"
+        }
+        if (prefs.dockMode == "free") {
+            prefs.dockX = (cx / sw).coerceIn(0f, 1f)
+            prefs.dockY = (cy / sh).coerceIn(0f, 1f)
+        }
+        layoutDock(animateFrom = left to top)
+    }
+
+    private fun showDockMenu() {
+        closeTray()
+        fun place(mode: String) {
+            prefs.dockMode = mode
+            layoutDock(animateFrom = dock.left.toFloat() to dock.top.toFloat())
+        }
+        actionSheet("Barra de ferramentas", listOf(
+            SheetItem(Icon.DOCK_TOP, "No topo (deitada)") { place("top") },
+            SheetItem(Icon.DOCK_LEFT, "À esquerda (em pé, com 3 cores)") { place("left") },
+            SheetItem(Icon.DOCK_RIGHT, "À direita (em pé, com 3 cores)") { place("right") },
+        ), header = label("Dica: arraste pela alça ⋮⋮ para levar a barra a qualquer lugar.", 13f).apply {
+            setPadding(dpi(4f), 0, 0, dpi(8f))
+        })
+    }
+
+    /** As 3 cores rápidas da barra em pé. */
+    private fun fillQuickColors() {
+        quickColorsBox.removeAllViews()
+        if (!dockVertical) return
+        quickColorsBox.addView(dockDivider().also { orientDivider(it) })
+        val pen = canvasView.pen
+        prefs.quickColors.forEachIndexed { i, col ->
+            val dot = ColorDot(this, col, canvasView.tool == InfiniteCanvasView.Tool.PEN && pen.color == col) {
+                setPen(canvasView.pen.copy(color = col))
+            }
+            dot.contentDescription = "Cor rápida ${i + 1} (toque longo para trocar)"
+            dot.setOnLongClickListener {
+                ColorPicker.show(this, col) { picked ->
+                    prefs.quickColors = prefs.quickColors.toMutableList().also { it[i] = picked }
+                    prefs.addCustomColor(picked)
+                    setPen(canvasView.pen.copy(color = picked))
+                }
+                true
+            }
+            Ui.run { dot.pressable(0.9f) }
+            quickColorsBox.addView(dot, LinearLayout.LayoutParams(dpi(32f), dpi(32f)).apply { setMargins(0, dpi(4f), 0, dpi(4f)) })
+        }
     }
 
     private fun refresh() {
@@ -328,18 +525,23 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         val tool = canvasView.tool
         val pen = canvasView.pen
         penToolButton.setImageDrawable(PenGlyphDrawable(pen.type, pen.color, dpi(30f), dp(1f)))
+        toolButtons[InfiniteCanvasView.Tool.SELECT]?.setImageDrawable(icon(if (prefs.selectRect) Icon.RECT_SELECT else Icon.LASSO))
         for ((t, b) in toolButtons) {
             val sel = t == tool
             b.background = if (sel) circle(Ui.ACCENT_SOFT, 0, 0f) else ripple(null, circle(Color.WHITE, 0, 0f))
             (b.drawable as? IconDrawable)?.color = if (sel) Ui.ACCENT else Ui.INK
         }
-        colorDot.visibility = if (tool == InfiniteCanvasView.Tool.PEN) View.VISIBLE else View.GONE
+        val vertical = dockVertical
+        colorDot.visibility = if (tool == InfiniteCanvasView.Tool.PEN && !vertical) View.VISIBLE else View.GONE
         colorDivider.visibility = colorDot.visibility
         colorDot.color = pen.color
+        fillQuickColors()
 
         favoritesBox.removeAllViews()
-        val favs = prefs.favorites.asReversed().take(3)
-        if (favs.isNotEmpty()) favoritesBox.addView(dockDivider())
+        // Em pé, os favoritos só aparecem se houver altura de sobra.
+        val roomForFavs = !vertical || stage.height == 0 || stage.height > dpi(600f)
+        val favs = if (roomForFavs) prefs.favorites.asReversed().take(3) else emptyList()
+        if (favs.isNotEmpty()) favoritesBox.addView(dockDivider().also { orientDivider(it) })
         for (f in favs) {
             val sel = tool == InfiniteCanvasView.Tool.PEN && f == pen
             favoritesBox.addView(toolButton(PenGlyphDrawable(f.type, f.color, dpi(28f), dp(1f))) { setPen(f) }.apply {
@@ -374,6 +576,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
 
     fun openPenTray() = showTray("pen")
     fun openEraserTray() = showTray("eraser")
+    fun openSelectTray() = showTray("select")
 
     @SuppressLint("ClickableViewAccessibility")
     private fun showTray(which: String) {
@@ -385,29 +588,66 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
                 true
             }
         }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        // A bandeja abre ao lado da barra: embaixo, em cima ou ao lado (barra em pé).
+        val sw = stage.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+        val sh = stage.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
+        val gap = dpi(10f)
+        val dockRight = dock.left + dock.width
+        val dockBottom = dock.top + dock.height
+        val width = when (prefs.dockMode) {
+            "left" -> min(sw - dockRight - gap - dpi(12f), dpi(440f))
+            "right" -> min(dock.left - gap - dpi(12f), dpi(440f))
+            else -> min(sw - dpi(24f), dpi(440f))
+        }
+        val lp = FrameLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT)
+        lp.bottomMargin = dpi(12f)
+        lp.topMargin = dpi(12f)
+        var fromX = 0f
+        var fromY = -dp(10f)
+        when (prefs.dockMode) {
+            "left" -> { lp.gravity = Gravity.TOP or Gravity.START; lp.marginStart = dockRight + gap; fromX = -dp(10f); fromY = 0f }
+            "right" -> { lp.gravity = Gravity.TOP or Gravity.END; lp.marginEnd = sw - dock.left + gap; fromX = dp(10f); fromY = 0f }
+            else -> {
+                val below = dock.top + dock.height / 2 < sh / 2
+                if (below) { lp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; lp.topMargin = dockBottom + gap }
+                else { lp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; lp.bottomMargin = sh - dock.top + gap; fromY = dp(10f) }
+            }
+        }
+
         val tray: View = when (which) {
             "pen" -> PenTray(this, prefs, canvasView.pen, onChange = { p ->
                 canvasView.pen = p
                 applyPrefs()
                 refresh()
-            }, onFavoritesChanged = { refresh() })
+            }, onFavoritesChanged = { refresh() }, widthPx = width)
+            "select" -> SelectTray(this, prefs) {
+                applyPrefs()
+                refresh()
+            }
             else -> EraserTray(this, prefs, onChange = { applyPrefs() }, onClearAll = {
                 canvasView.clearAll()
                 closeTray()
             })
         }
-        val width = min(resources.displayMetrics.widthPixels - dpi(24f), dpi(440f))
-        trayLayer.addView(tray, FrameLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
-            topMargin = dpi(74f)
-        })
+        // Bandejas altas (marca-texto, tela deitada) rolam em vez de sair da tela.
+        val scroller = android.widget.ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            clipToPadding = false
+            clipChildren = false
+            addView(tray)
+        }
+        trayLayer.addView(scroller, lp)
         trayLayer.visibility = View.VISIBLE
         openTray = which
         if (Ui.animationsOn()) {
-            tray.alpha = 0f
-            tray.translationY = -dp(10f)
-            tray.scaleX = 0.98f
-            tray.scaleY = 0.98f
-            tray.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f)
+            scroller.alpha = 0f
+            scroller.translationX = fromX
+            scroller.translationY = fromY
+            scroller.scaleX = 0.98f
+            scroller.scaleY = 0.98f
+            scroller.animate().alpha(1f).translationX(0f).translationY(0f).scaleX(1f).scaleY(1f)
                 .setDuration(240).setInterpolator(Ui.EASE).start()
         }
     }
@@ -577,19 +817,21 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
             val bmp = try { canvasView.images.export(img) } catch (e: Exception) { null }
             val ok = bmp != null && try {
                 writeToMediaStore(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, fileName("png"), "image/png",
-                    Environment.DIRECTORY_PICTURES + "/NotasInfinitas") { out -> bmp.compress(Bitmap.CompressFormat.PNG, 100, out) }
+                    Environment.DIRECTORY_PICTURES + "/TonyNotes") { out -> bmp.compress(Bitmap.CompressFormat.PNG, 100, out) }
             } catch (e: Exception) {
                 false
             }
             bmp?.recycle()
-            main.post { toast(if (ok) "Imagem salva em Imagens/NotasInfinitas" else "Não foi possível salvar a imagem.") }
+            main.post { toast(if (ok) "Imagem salva em Imagens/TonyNotes" else "Não foi possível salvar a imagem.") }
         }
     }
 
     // ---- Zoom -------------------------------------------------------------------------
 
     private fun showZoomMenu() {
-        actionSheet("Zoom: ${canvasView.zoomPercent}%", listOf(
+        val fitPage = if (canvasView.pageLayout.hasPages)
+            listOf(SheetItem(Icon.PAGE, "Ajustar à folha") { canvasView.fitToPage(canvasView.currentPage()) }) else emptyList()
+        actionSheet("Zoom: ${canvasView.zoomPercent}%", fitPage + listOf(
             SheetItem(Icon.CENTER, "Ajustar à tela (ver tudo)") { canvasView.recenter() },
             SheetItem(Icon.ZOOM, "100% (tamanho real)") { canvasView.zoomTo(1f) },
             SheetItem(Icon.ZOOM, "50%") { canvasView.zoomTo(0.5f) },
@@ -613,11 +855,8 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
             toast(if (it) "Reabra a nota para ativar a tinta de latência mínima." else "Tinta de latência mínima desligada.")
         })
         actionSheet(null, listOf(
-            SheetItem(Icon.PAGE, "Plano de fundo") {
-                Panels.showBackground(this, canvasView.pageStyle, canvasView.paperColor) { s, c ->
-                    canvasView.pageStyle = s
-                    canvasView.paperColor = c
-                }
+            SheetItem(Icon.PAGE, "Página (infinita ou folhas)") {
+                Panels.showPage(this, canvasView, prefs) { onStateChanged() }
             },
             SheetItem(Icon.PDF, "Importar PDF") { pickPdf() },
             SheetItem(Icon.SELECT_ALL, "Selecionar tudo") { canvasView.selectAll(); refresh() },
@@ -652,7 +891,16 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
 
     override fun onStateChanged() {
         if (::textEditor.isInitialized) textEditor.reposition()
-        if (::emptyHint.isInitialized) emptyHint.visibility = if (canvasView.isEmpty && !(::textEditor.isInitialized && textEditor.isActive)) View.VISIBLE else View.GONE
+        if (::emptyHint.isInitialized) {
+            emptyHint.visibility = if (canvasView.isEmpty && !(::textEditor.isInitialized && textEditor.isActive)) View.VISIBLE else View.GONE
+            val l = canvasView.pageLayout
+            hintTitle.text = if (l.hasPages) "Escreva na folha" else "Escreva em qualquer direção"
+            hintBody.text = when {
+                !l.hasPages -> "A nota não tem fim: role para os lados e para baixo.\nUse dois dedos para mover e dar zoom."
+                l.endless -> "Uma folha nova aparece quando você escreve na última.\nUse dois dedos para mover e dar zoom."
+                else -> "Mude o número de folhas em ⋮ › Página.\nUse dois dedos para mover e dar zoom."
+            }
+        }
         undoButton.alpha = if (canvasView.canUndo) 1f else 0.3f
         redoButton.alpha = if (canvasView.canRedo) 1f else 0.3f
         zoomLabel.text = "${canvasView.zoomPercent}%"
@@ -835,7 +1083,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         val wasDirty = canvasView.dirty
         canvasView.markSaved()
         if (wasDirty) Library.updateNote(note, touch = true)
-        val thumb = if (wasDirty) canvasView.renderToBitmap(480, 360, 1f) else null
+        val thumb = if (wasDirty) canvasView.renderToBitmap(480, 360, 1f, thumbnail = true) else null
         val id = note.id
         Library.io.execute {
             try {
@@ -864,7 +1112,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         Library.io.execute {
             val ok = try {
                 writeToMediaStore(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, name, "image/png",
-                    Environment.DIRECTORY_PICTURES + "/NotasInfinitas") { out ->
+                    Environment.DIRECTORY_PICTURES + "/TonyNotes") { out ->
                     bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
                 }
             } catch (e: Exception) {
@@ -872,41 +1120,60 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
             } finally {
                 bitmap.recycle()
             }
-            main.post { toast(if (ok) "Imagem salva em Imagens/NotasInfinitas" else "Não foi possível salvar a imagem.") }
+            main.post { toast(if (ok) "Imagem salva em Imagens/TonyNotes" else "Não foi possível salvar a imagem.") }
         }
     }
 
-    /** PDF de uma página do tamanho do conteúdo (vetorial: os traços continuam nítidos). */
+    /**
+     * PDF vetorial (os traços continuam nítidos). Com folhas, cada folha vira uma página
+     * do PDF; na tela infinita, sai uma página do tamanho do conteúdo.
+     */
     private fun exportPdf() {
         val content = canvasView.contentBounds()
         if (content == null) {
             toast("A nota está vazia.")
             return
         }
-        val pad = 40f
-        val w = content.width() + pad * 2
-        val h = content.height() + pad * 2
-        // Limite do PDF: 14400 pt por lado.
-        val s = min(1f, min(14400f / w, 14400f / h))
         val doc = PdfDocument()
-        val page = doc.startPage(PdfDocument.PageInfo.Builder(max(1, (w * s).toInt()), max(1, (h * s).toInt()), 1).create())
-        val c = page.canvas
-        c.drawColor(canvasView.paperColor)
-        c.scale(s, s)
-        c.translate(pad - content.left, pad - content.top)
-        canvasView.drawContent(c, null)
-        doc.finishPage(page)
+        val pages = canvasView.usedPageRects()
+        if (pages.isNotEmpty()) {
+            // Folha do tamanho A4 (595 pt de largura em retrato).
+            val s = 595f / min(pages[0].width(), pages[0].height())
+            pages.forEachIndexed { i, r ->
+                val page = doc.startPage(PdfDocument.PageInfo.Builder((r.width() * s).toInt(), (r.height() * s).toInt(), i + 1).create())
+                val c = page.canvas
+                c.drawColor(canvasView.paperColor)
+                c.scale(s, s)
+                c.translate(-r.left, -r.top)
+                c.clipRect(r)
+                canvasView.drawContent(c, r)
+                doc.finishPage(page)
+            }
+        } else {
+            val pad = 40f
+            val w = content.width() + pad * 2
+            val h = content.height() + pad * 2
+            // Limite do PDF: 14400 pt por lado.
+            val s = min(1f, min(14400f / w, 14400f / h))
+            val page = doc.startPage(PdfDocument.PageInfo.Builder(max(1, (w * s).toInt()), max(1, (h * s).toInt()), 1).create())
+            val c = page.canvas
+            c.drawColor(canvasView.paperColor)
+            c.scale(s, s)
+            c.translate(pad - content.left, pad - content.top)
+            canvasView.drawContent(c, null)
+            doc.finishPage(page)
+        }
         val name = fileName("pdf")
         Library.io.execute {
             val ok = try {
                 writeToMediaStore(MediaStore.Downloads.EXTERNAL_CONTENT_URI, name, "application/pdf",
-                    Environment.DIRECTORY_DOWNLOADS + "/NotasInfinitas") { out -> doc.writeTo(out); true }
+                    Environment.DIRECTORY_DOWNLOADS + "/TonyNotes") { out -> doc.writeTo(out); true }
             } catch (e: Exception) {
                 false
             } finally {
                 doc.close()
             }
-            main.post { toast(if (ok) "PDF salvo em Downloads/NotasInfinitas" else "Não foi possível salvar o PDF.") }
+            main.post { toast(if (ok) "PDF salvo em Downloads/TonyNotes" else "Não foi possível salvar o PDF.") }
         }
     }
 

@@ -11,8 +11,8 @@ android {
         applicationId = "com.jgantonio.notasinfinitas"
         minSdk = 29
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.6.0"
+        versionCode = 7
+        versionName = "0.7.0"
     }
 
     signingConfigs {
@@ -65,4 +65,9 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("androidx.test:core:1.6.1")
+}
+
+// O APK sai como TonyNotes-debug.apk (o id do pacote continua o mesmo: atualiza sem perder as notas).
+base {
+    archivesName.set("TonyNotes")
 }

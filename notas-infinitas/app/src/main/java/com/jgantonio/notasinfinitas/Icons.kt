@@ -17,7 +17,8 @@ enum class Icon {
     BACK, UNDO, REDO, MORE, ERASER, LASSO, TEXT, IMAGE, PLUS, FOLDER, FOLDER_PLUS, NOTE,
     TRASH, COPY, PALETTE, CHECK, CLOSE, EDIT, MOVE, STAR, TOUCH, EXPORT, PDF, PAGE, CENTER, SHAPES, CHEVRON_RIGHT,
     ROTATE, LOCK, UNLOCK, CROP, FLIP_H, FLIP_V, ADJUST, TO_FRONT, TO_BACK, DOWNLOAD, RESET, ZOOM, SELECT_ALL,
-    SEARCH, MARKER, ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT, TEXT_BIGGER, TEXT_SMALLER
+    SEARCH, MARKER, ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT, TEXT_BIGGER, TEXT_SMALLER,
+    RECT_SELECT, PARTIAL, STRAIGHT, GRIP, INFINITE, PAGES_V, PAGES_H, DOCK_TOP, DOCK_LEFT, DOCK_RIGHT
 }
 
 /** Rótulo em português para leitores de tela (botões só com ícone). */
@@ -34,6 +35,10 @@ val Icon.label: String
         Icon.FLIP_V -> "Virar"; Icon.ADJUST -> "Ajustes"; Icon.TO_FRONT -> "Trazer para frente"; Icon.TO_BACK -> "Enviar para trás"
         Icon.DOWNLOAD -> "Salvar"; Icon.RESET -> "Redefinir"; Icon.ZOOM -> "Zoom"; Icon.SELECT_ALL -> "Selecionar tudo"
         Icon.SEARCH -> "Buscar"; Icon.MARKER -> "Marca-texto"; Icon.ALIGN_LEFT -> "Alinhar à esquerda"
+        Icon.RECT_SELECT -> "Seleção retangular"; Icon.PARTIAL -> "Seleção parcial"; Icon.STRAIGHT -> "Linhas retas"
+        Icon.GRIP -> "Arrastar barra"; Icon.INFINITE -> "Infinito"; Icon.PAGES_V -> "Folhas verticais"
+        Icon.PAGES_H -> "Folhas horizontais"; Icon.DOCK_TOP -> "Barra no topo"; Icon.DOCK_LEFT -> "Barra à esquerda"
+        Icon.DOCK_RIGHT -> "Barra à direita"
         Icon.ALIGN_CENTER -> "Centralizar texto"; Icon.ALIGN_RIGHT -> "Alinhar à direita"
         Icon.TEXT_BIGGER -> "Aumentar"; Icon.TEXT_SMALLER -> "Diminuir"
     }
@@ -318,6 +323,44 @@ class IconDrawable(
             Icon.SHAPES -> {
                 c.drawCircle(8.5f, 8.5f, 4.5f, stroke)
                 c.drawPath(path { rrect(11.5f, 11.5f, 20f, 20f, 1.5f) }, stroke)
+            }
+            Icon.RECT_SELECT -> {
+                val dashed = Paint(stroke).apply { pathEffect = DashPathEffect(floatArrayOf(2.6f, 2.2f), 0f) }
+                c.drawPath(path { rrect(3.5f, 4.5f, 18.5f, 16.5f, 1.5f) }, dashed)
+                c.drawPath(path { moveTo(14f, 13f); lineTo(14f, 21.5f); lineTo(16.2f, 19.3f); lineTo(18f, 22.5f); lineTo(19.6f, 21.6f); lineTo(17.8f, 18.5f); lineTo(20.8f, 18.2f); close() }, fill)
+            }
+            Icon.PARTIAL -> {
+                val dashed = Paint(stroke).apply { pathEffect = DashPathEffect(floatArrayOf(2.6f, 2.2f), 0f) }
+                c.drawPath(path { rrect(3.5f, 3.5f, 14.5f, 14.5f, 1.5f) }, dashed)
+                c.drawCircle(15f, 15f, 5.5f, stroke)
+            }
+            Icon.STRAIGHT -> {
+                c.drawLine(5f, 12f, 19f, 12f, stroke)
+                c.drawCircle(4f, 12f, 1.8f, fill)
+                c.drawCircle(20f, 12f, 1.8f, fill)
+                c.drawPath(path { moveTo(4f, 6.5f); quadTo(8f, 3.5f, 12f, 6.5f); quadTo(16f, 9.5f, 20f, 6.5f) }, Paint(stroke).apply { alpha = 110 })
+            }
+            Icon.GRIP -> for (x in listOf(9f, 15f)) for (y in listOf(6f, 12f, 18f)) c.drawCircle(x, y, 1.6f, fill)
+            Icon.INFINITE -> c.drawPath(path {
+                moveTo(12f, 12f)
+                cubicTo(9.5f, 8f, 4f, 8f, 4f, 12f); cubicTo(4f, 16f, 9.5f, 16f, 12f, 12f)
+                cubicTo(14.5f, 8f, 20f, 8f, 20f, 12f); cubicTo(20f, 16f, 14.5f, 16f, 12f, 12f)
+            }, stroke)
+            Icon.PAGES_V -> {
+                c.drawPath(path { rrect(6.5f, 2.5f, 17.5f, 10.5f, 1.2f) }, stroke)
+                c.drawPath(path { rrect(6.5f, 13.5f, 17.5f, 21.5f, 1.2f) }, stroke)
+            }
+            Icon.PAGES_H -> {
+                c.drawPath(path { rrect(2.5f, 6.5f, 10.5f, 17.5f, 1.2f) }, stroke)
+                c.drawPath(path { rrect(13.5f, 6.5f, 21.5f, 17.5f, 1.2f) }, stroke)
+            }
+            Icon.DOCK_TOP, Icon.DOCK_LEFT, Icon.DOCK_RIGHT -> {
+                c.drawPath(path { rrect(3.5f, 3.5f, 20.5f, 20.5f, 3f) }, stroke)
+                when (icon) {
+                    Icon.DOCK_TOP -> c.drawPath(path { rrect(7f, 6.5f, 17f, 9f, 1.2f) }, fill)
+                    Icon.DOCK_LEFT -> c.drawPath(path { rrect(6.5f, 7f, 9f, 17f, 1.2f) }, fill)
+                    else -> c.drawPath(path { rrect(15f, 7f, 17.5f, 17f, 1.2f) }, fill)
+                }
             }
         }
     }

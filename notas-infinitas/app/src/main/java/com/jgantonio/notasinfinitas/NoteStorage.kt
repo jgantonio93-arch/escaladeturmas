@@ -15,11 +15,59 @@ data class ViewState(val offsetX: Float, val offsetY: Float, val scale: Float)
 
 enum class PageStyle(val label: String) { BLANK("Em branco"), DOTS("Pontilhado"), LINES("Pautado"), GRID("Quadriculado") }
 
+/**
+ * Como a nota é organizada: tela infinita (padrão) ou folhas.
+ *
+ * Com folhas: [horizontal] põe as folhas lado a lado (senão, uma embaixo da outra),
+ * [landscape] deita a folha, e [endless] cria uma folha nova sozinha sempre que se
+ * escreve na última (senão a nota tem [count] folhas). [w]/[h] é o tamanho da folha
+ * e [ox]/[oy] o canto da primeira, em coordenadas do mundo.
+ */
+data class PageLayout(
+    val paged: Boolean = false,
+    val horizontal: Boolean = false,
+    val landscape: Boolean = false,
+    val endless: Boolean = true,
+    val count: Int = 1,
+    val w: Float = 0f,
+    val h: Float = 0f,
+    val ox: Float = 0f,
+    val oy: Float = 0f,
+) {
+    val hasPages get() = paged && w > 0f && h > 0f
+    val gap get() = w.coerceAtMost(h) * 0.05f
+    val stepX get() = if (horizontal) w + gap else 0f
+    val stepY get() = if (horizontal) 0f else h + gap
+
+    /** Folha [i] (a partir de 0) em coordenadas do mundo. */
+    fun pageRect(i: Int, out: RectF = RectF()): RectF {
+        val l = ox + i * stepX
+        val t = oy + i * stepY
+        return out.apply { set(l, t, l + w, t + h) }
+    }
+
+    /** Índice da folha onde fica a coordenada (pode passar do total). */
+    fun indexAt(px: Float, py: Float): Int =
+        if (horizontal) kotlin.math.floor((px - ox) / (w + gap)).toInt() else kotlin.math.floor((py - oy) / (h + gap)).toInt()
+
+    /** Para lembrar o modo escolhido nas próximas notas (sem posição nem quantidade). */
+    fun encodePref() = "${if (paged) 1 else 0},${if (horizontal) 1 else 0},${if (landscape) 1 else 0},${if (endless) 1 else 0}"
+
+    companion object {
+        fun decodePref(s: String?): PageLayout? {
+            val p = s?.split(',') ?: return null
+            if (p.size != 4) return null
+            return PageLayout(paged = p[0] == "1", horizontal = p[1] == "1", landscape = p[2] == "1", endless = p[3] == "1")
+        }
+    }
+}
+
 class NoteData(
     val elements: List<Element>,
     val viewState: ViewState?,
     val style: PageStyle = PageStyle.DOTS,
     val paperColor: Int = Color.WHITE,
+    val layout: PageLayout = PageLayout(),
 )
 
 /**
@@ -30,10 +78,11 @@ class NoteData(
  * Versão 2: traços com pincel e espessura por ponto, textos, imagens e plano de fundo.
  * Versão 3: imagens com rotação, recorte, filtros, moldura, trava etc. (tipo 4).
  * Versão 4: textos com rotação, espelhamento, fonte, alinhamento e estilos por trecho (tipo 5).
+ * Versão 5: modo de página (infinita ou folhas) logo depois da cor do papel.
  */
 object NoteStorage {
     private const val MAGIC = 0x4E494E46 // "NINF"
-    private const val VERSION = 4
+    private const val VERSION = 5
 
     private const val TYPE_STROKE = 1
     private const val TYPE_TEXT = 2
@@ -53,6 +102,10 @@ object NoteStorage {
             out.writeFloat(v.scale)
             out.writeInt(data.style.ordinal)
             out.writeInt(data.paperColor)
+            val l = data.layout
+            out.writeBoolean(l.paged); out.writeBoolean(l.horizontal); out.writeBoolean(l.landscape); out.writeBoolean(l.endless)
+            out.writeInt(l.count)
+            out.writeFloat(l.w); out.writeFloat(l.h); out.writeFloat(l.ox); out.writeFloat(l.oy)
             out.writeInt(data.elements.size)
             for (e in data.elements) when (e) {
                 is StrokeElement -> {
@@ -118,7 +171,8 @@ object NoteStorage {
                 if (input.readInt() != MAGIC) return null
                 when (input.readInt()) {
                     1 -> readV1(input)
-                    2, 3, 4 -> readV2(input)
+                    2, 3, 4 -> readV2(input, false)
+                    5 -> readV2(input, true)
                     else -> null
                 }
             }
@@ -145,10 +199,16 @@ object NoteStorage {
         return NoteData(elements, state)
     }
 
-    private fun readV2(input: DataInputStream): NoteData {
+    private fun readV2(input: DataInputStream, hasLayout: Boolean): NoteData {
         val state = ViewState(input.readFloat(), input.readFloat(), input.readFloat())
         val style = PageStyle.entries.getOrElse(input.readInt()) { PageStyle.DOTS }
         val paper = input.readInt()
+        val layout = if (hasLayout) PageLayout(
+            paged = input.readBoolean(), horizontal = input.readBoolean(),
+            landscape = input.readBoolean(), endless = input.readBoolean(),
+            count = input.readInt().coerceIn(1, 9999),
+            w = input.readFloat(), h = input.readFloat(), ox = input.readFloat(), oy = input.readFloat(),
+        ) else PageLayout()
         val count = input.readInt()
         val elements = ArrayList<Element>(count)
         repeat(count) {
@@ -209,6 +269,6 @@ object NoteStorage {
                 else -> throw IllegalStateException("tipo de elemento desconhecido")
             }
         }
-        return NoteData(elements, state, style, paper)
+        return NoteData(elements, state, style, paper, layout)
     }
 }

@@ -68,10 +68,20 @@ class InfiniteCanvasView(context: Context) : View(context) {
     var eraserArea = false
     var eraserSize = 14f
     var eraserHighlighterOnly = false
+    /** Seleção por retângulo (em vez de laço livre). */
+    var selectRect = false
+    /** Inclui itens que só encostam no laço/retângulo. */
+    var selectPartial = false
     var pageStyle = PageStyle.DOTS
         set(v) { field = v; dirty = true; invalidate() }
     var paperColor = Color.WHITE
         set(v) { field = v; dirty = true; invalidate() }
+
+    /** Tela infinita ou folhas (verticais/horizontais, fixas ou infinitas). */
+    var pageLayout = PageLayout()
+        private set
+    private var pageCountCache = -1
+    private val pageTmp = RectF()
 
     val images = ImageRenderer { invalidate() }
     var assetDir: File? = null
@@ -185,6 +195,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
         color = Ui.ACCENT
         pathEffect = DashPathEffect(floatArrayOf(8f * density, 6f * density), 0f)
     }
+    private val lassoFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(22, 58, 85, 184) }
     private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1.5f * density
@@ -789,7 +800,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
         listener?.onStateChanged()
     }
 
-    fun snapshot() = NoteData(ArrayList(elements), ViewState(offsetX, offsetY, scale), pageStyle, paperColor)
+    fun snapshot() = NoteData(ArrayList(elements), ViewState(offsetX, offsetY, scale), pageStyle, paperColor, pageLayout)
 
     fun markSaved() {
         dirty = false
@@ -808,9 +819,136 @@ class InfiniteCanvasView(context: Context) : View(context) {
         }
         pageStyle = note.style
         paperColor = note.paperColor
+        pageLayout = note.layout
+        pageCountCache = -1
+        if (note.viewState == null && pageLayout.hasPages) post { fitToPage(0) }
         dirty = false
         invalidate()
         listener?.onStateChanged()
+    }
+
+    // ---- Folhas ------------------------------------------------------------------
+
+    /** Quantas folhas a nota tem agora. Com folhas infinitas sobra sempre uma em branco no fim. */
+    val pageCount: Int
+        get() {
+            val l = pageLayout
+            if (!l.hasPages) return 0
+            if (!l.endless) return max(1, l.count)
+            if (pageCountCache < 0) {
+                val c = contentBounds()
+                pageCountCache = if (c == null) 1 else (l.indexAt(c.right - 0.5f, c.bottom - 0.5f) + 2).coerceIn(1, MAX_PAGES)
+            }
+            return pageCountCache
+        }
+
+    /** Folhas com conteúdo (para exportar): sem a folha em branco do fim das folhas infinitas. */
+    fun usedPageRects(): List<RectF> {
+        val l = pageLayout
+        if (!l.hasPages) return emptyList()
+        val n = if (l.endless) max(1, pageCount - 1) else pageCount
+        return List(n) { l.pageRect(it) }
+    }
+
+    /**
+     * Troca o modo de página. Ao sair da tela infinita, a primeira folha começa onde
+     * está o conteúdo; trocar entre retrato e paisagem mantém o lado menor da folha.
+     */
+    fun setPageLayout(paged: Boolean, horizontal: Boolean, landscape: Boolean, endless: Boolean, count: Int) {
+        val old = pageLayout
+        if (!paged) {
+            pageLayout = old.copy(paged = false)
+        } else {
+            val short = if (old.w > 0f && old.h > 0f) min(old.w, old.h) else PAGE_SHORT_DP * density
+            val long = short * 1.4142f
+            val w = if (landscape) long else short
+            val h = if (landscape) short else long
+            var ox = old.ox
+            var oy = old.oy
+            if (!old.hasPages && old.w <= 0f) {
+                contentBounds()?.let { c ->
+                    ox = c.left - w * 0.06f
+                    oy = c.top - h * 0.04f
+                }
+            }
+            pageLayout = PageLayout(true, horizontal, landscape, endless, count.coerceIn(1, MAX_PAGES), w, h, ox, oy)
+        }
+        pageCountCache = -1
+        dirty = true
+        val n = pageLayout
+        if (n.hasPages && (!old.hasPages || old.horizontal != n.horizontal || old.landscape != n.landscape)) fitToPage(0)
+        invalidate()
+        listener?.onStateChanged()
+    }
+
+    /** Enquadra a folha [i]: na rolagem vertical ocupa a largura; na horizontal, a folha inteira. */
+    fun fitToPage(i: Int) {
+        val l = pageLayout
+        if (!l.hasPages) return
+        if (width == 0 || height == 0) {
+            post { fitToPage(i) }
+            return
+        }
+        val r = l.pageRect(i.coerceIn(0, max(0, pageCount - 1)), pageTmp)
+        val pad = 14f * density
+        val top = 76f * density
+        val availH = height - top - pad
+        scale = if (l.horizontal) min((width - 2 * pad) / r.width(), availH / r.height())
+        else (width - 2 * pad) / r.width()
+        scale = scale.coerceIn(MIN_SCALE, MAX_SCALE)
+        offsetX = (width - r.width() * scale) / 2f - r.left * scale
+        offsetY = (if (l.horizontal) top + max(0f, (availH - r.height() * scale) / 2f) else top) - r.top * scale
+        invalidate()
+        listener?.onStateChanged()
+    }
+
+    /** Folha no meio da tela (para "ajustar à folha"). */
+    fun currentPage(): Int {
+        val l = pageLayout
+        if (!l.hasPages) return 0
+        return l.indexAt(wx(width / 2f), wy(height / 2f)).coerceIn(0, max(0, pageCount - 1))
+    }
+
+    private fun deskColor(): Int = if (isDarkPaper()) Color.parseColor("#121418") else Color.parseColor("#E7E3DB")
+
+    private val pagePaint = Paint()
+    private val pageShadow = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val pageNumberPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
+
+    /** Mesa + folhas visíveis (com sombra, modelo de página e número). */
+    private fun drawPages(canvas: Canvas) {
+        val l = pageLayout
+        canvas.drawColor(deskColor())
+        val n = pageCount
+        val first = max(0, l.indexAt(visibleWorld.left, visibleWorld.top))
+        val last = min(n - 1, l.indexAt(visibleWorld.right, visibleWorld.bottom))
+        if (first > last) return
+        val dark = isDarkPaper()
+        pagePaint.color = paperColor
+        pageNumberPaint.color = if (dark) Color.parseColor("#8A8F98") else Ui.MUTED
+        pageNumberPaint.textSize = 11f * density
+        pageNumberPaint.typeface = Ui.MEDIUM
+        for (i in first..last) {
+            val r = l.pageRect(i, pageTmp)
+            if (!RectF.intersects(r, visibleWorld)) continue
+            val sl = r.left * scale + offsetX
+            val st = r.top * scale + offsetY
+            val sr = r.right * scale + offsetX
+            val sb = r.bottom * scale + offsetY
+            // Sombra suave em duas camadas (tom quente, como o resto do app)
+            pageShadow.color = Color.argb(if (dark) 60 else 16, 60, 48, 30)
+            canvas.drawRect(sl - 1f, st + 1f * density, sr + 1f, sb + 3f * density, pageShadow)
+            pageShadow.color = Color.argb(if (dark) 40 else 12, 60, 48, 30)
+            canvas.drawRect(sl - 0.5f, st, sr + 0.5f, sb + 1f * density, pageShadow)
+            canvas.drawRect(sl, st, sr, sb, pagePaint)
+            canvas.save()
+            canvas.clipRect(sl, st, sr, sb)
+            drawPattern(canvas, r.left, r.top, l.w / 24f)
+            canvas.restore()
+            if (n > 1 && sb - st > 180f * density) {
+                canvas.drawText("${i + 1}", (sl + sr) / 2f, sb - 10f * density, pageNumberPaint)
+            }
+        }
     }
 
     fun contentBounds(): RectF? {
@@ -824,18 +962,31 @@ class InfiniteCanvasView(context: Context) : View(context) {
      * Desenha todo o conteúdo num bitmap de no máximo [maxW] x [maxH] pixels
      * (sobre a cor do papel). Usado para exportar e para a miniatura.
      */
-    fun renderToBitmap(maxW: Int, maxH: Int, maxScale: Float = 2f): Bitmap? {
+    fun renderToBitmap(maxW: Int, maxH: Int, maxScale: Float = 2f, thumbnail: Boolean = false): Bitmap? {
         val content = contentBounds() ?: return null
-        val pad = 40f
-        val w = content.width() + pad * 2
-        val h = content.height() + pad * 2
+        val pages = usedPageRects()
+        val region = RectF(content)
+        if (pages.isNotEmpty()) {
+            // Com folhas: a miniatura mostra a primeira folha; a exportação, todas as usadas.
+            if (thumbnail) region.set(pages[0]) else pages.forEach { region.union(it) }
+        }
+        val pad = if (pages.isNotEmpty()) 24f else 40f
+        val w = region.width() + pad * 2
+        val h = region.height() + pad * 2
         val s = minOf(maxScale, maxW / w, maxH / h, sqrt(16_000_000f / (w * h)))
         val bmp = Bitmap.createBitmap(max(1, (w * s).toInt()), max(1, (h * s).toInt()), Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
-        c.drawColor(paperColor)
+        c.drawColor(if (pages.isNotEmpty()) deskColor() else paperColor)
         c.scale(s, s)
-        c.translate(pad - content.left, pad - content.top)
-        drawContent(c, null, s)
+        c.translate(pad - region.left, pad - region.top)
+        if (pages.isNotEmpty()) {
+            pagePaint.color = paperColor
+            for (r in pages) c.drawRect(r, pagePaint)
+        }
+        val z = StrokeRenderer.zoom
+        StrokeRenderer.zoom = s
+        drawContent(c, if (thumbnail && pages.isNotEmpty()) region else null, s)
+        StrokeRenderer.zoom = z
         return bmp
     }
 
@@ -947,7 +1098,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
             Gesture.LASSO -> {
                 lassoXs.clear(); lassoYs.clear()
                 lassoPath.reset()
-                lassoPath.moveTo(x, y)
+                if (!selectRect) lassoPath.moveTo(x, y)
                 lassoXs.add(wx(x)); lassoYs.add(wy(y))
             }
             Gesture.MOVE_SEL, Gesture.SCALE_SEL, Gesture.ROTATE_SEL -> {
@@ -1008,12 +1159,6 @@ class InfiniteCanvasView(context: Context) : View(context) {
         }
     }
 
-    private val predPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND
-        strokeJoin = Paint.Join.ROUND
-    }
-
     /** Desenha a tinta em andamento (chamado pela camada [LiveInkView]). */
     fun drawLiveInk(canvas: Canvas) {
         val b = builder ?: return
@@ -1021,18 +1166,8 @@ class InfiniteCanvasView(context: Context) : View(context) {
         canvas.save()
         canvas.translate(offsetX, offsetY)
         canvas.scale(scale, scale)
-        StrokeRenderer.drawBuilder(canvas, b)
-        if (predN > 0 && b.n > 0) {
-            predPaint.color = b.pen.color or (0xFF shl 24)
-            predPaint.alpha = b.pen.alpha
-            predPaint.strokeWidth = b.ws[b.n - 1]
-            var lx = b.xs[b.n - 1]
-            var ly = b.ys[b.n - 1]
-            for (i in 0 until predN) {
-                canvas.drawLine(lx, ly, predXs[i], predYs[i], predPaint)
-                lx = predXs[i]; ly = predYs[i]
-            }
-        }
+        StrokeRenderer.zoom = scale
+        StrokeRenderer.drawBuilder(canvas, b, predXs, predYs, predN)
         canvas.restore()
     }
 
@@ -1093,8 +1228,14 @@ class InfiniteCanvasView(context: Context) : View(context) {
                 eraseAt(x, y)
             }
             Gesture.LASSO -> {
-                lassoPath.lineTo(x, y)
-                lassoXs.add(wx(x)); lassoYs.add(wy(y))
+                if (selectRect) {
+                    lassoPath.rewind()
+                    lassoPath.addRect(min(downX, x), min(downY, y), max(downX, x), max(downY, y), Path.Direction.CW)
+                    if (lassoXs.size > 1) { lassoXs[1] = wx(x); lassoYs[1] = wy(y) } else { lassoXs.add(wx(x)); lassoYs.add(wy(y)) }
+                } else {
+                    lassoPath.lineTo(x, y)
+                    lassoXs.add(wx(x)); lassoYs.add(wy(y))
+                }
                 invalidate()
             }
             Gesture.MOVE_SEL -> {
@@ -1184,9 +1325,15 @@ class InfiniteCanvasView(context: Context) : View(context) {
                     // Toque simples: seleciona o item tocado (inclusive imagens travadas).
                     val hit = hitTest(wx(downX), wy(downY))
                     if (hit != null) setSelection(listOf(hit)) else clearSelection()
-                } else if (lassoXs.size >= 3) {
-                    val lasso = Lasso(lassoXs.toFloatArray(), lassoYs.toFloatArray())
-                    setSelection(elements.filter { it.insideLasso(lasso) })
+                } else {
+                    val lasso = when {
+                        selectRect && lassoXs.size >= 2 -> Lasso.rect(lassoXs[0], lassoYs[0], lassoXs[1], lassoYs[1])
+                        !selectRect && lassoXs.size >= 3 -> Lasso(lassoXs.toFloatArray(), lassoYs.toFloatArray())
+                        else -> null
+                    }
+                    if (lasso != null) {
+                        setSelection(elements.filter { if (selectPartial) it.touchesLasso(lasso) else it.insideLasso(lasso) })
+                    }
                 }
                 lassoPath.reset()
             }
@@ -1364,6 +1511,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
     }
 
     private fun changed() {
+        pageCountCache = -1
         dirty = true
         invalidate()
         listener?.onStateChanged()
@@ -1385,13 +1533,18 @@ class InfiniteCanvasView(context: Context) : View(context) {
                 postOnAnimation { if (builder == null) wetInk?.clear() else pendingWetClear = true }
             }
         }
-        canvas.drawColor(paperColor)
         visibleWorld.set(wx(0f), wy(0f), wx(width.toFloat()), wy(height.toFloat()))
-        drawPattern(canvas)
+        if (pageLayout.hasPages) {
+            drawPages(canvas)
+        } else {
+            canvas.drawColor(paperColor)
+            drawPattern(canvas, 0f, 0f, null)
+        }
 
         canvas.save()
         canvas.translate(offsetX, offsetY)
         canvas.scale(scale, scale)
+        StrokeRenderer.zoom = scale
         val moving = !selT.isIdentity
         val crop = cropTarget
         for (e in elements) {
@@ -1405,11 +1558,14 @@ class InfiniteCanvasView(context: Context) : View(context) {
                 drawElement(canvas, e, scale, sync = false)
             }
         }
-        if (liveInk == null && !wetActive) builder?.let { StrokeRenderer.drawBuilder(canvas, it) }
+        if (liveInk == null && !wetActive) builder?.let { StrokeRenderer.drawBuilder(canvas, it, predXs, predYs, predN) }
         if (crop != null) drawCrop(canvas, crop)
         canvas.restore()
 
-        if (gesture == Gesture.LASSO) canvas.drawPath(lassoPath, dashPaint)
+        if (gesture == Gesture.LASSO) {
+            canvas.drawPath(lassoPath, lassoFill)
+            canvas.drawPath(lassoPath, dashPaint)
+        }
         if (crop == null) drawSelection(canvas)
         if (eraserX >= 0f) {
             canvas.drawCircle(eraserX, eraserY, eraserSize * density, eraserPaint)
@@ -1551,16 +1707,24 @@ class InfiniteCanvasView(context: Context) : View(context) {
         return lum < 128
     }
 
-    /** Fundo (pontos, linhas ou grade) que acompanha a rolagem. */
-    private fun drawPattern(canvas: Canvas) {
+    /**
+     * Fundo (pontos, linhas ou grade) que acompanha a rolagem, alinhado em ([ax], [ay]).
+     * Na tela infinita o espaçamento se adapta ao zoom; numa folha ([fixed]) ele é fixo,
+     * como papel de verdade.
+     */
+    private fun drawPattern(canvas: Canvas, ax: Float, ay: Float, fixed: Float?) {
         if (pageStyle == PageStyle.BLANK) return
         val dark = isDarkPaper()
-        var spacing = GRID_SPACING
-        while (spacing * scale < 18f * density) spacing *= 2f
-        while (spacing * scale > 80f * density) spacing /= 2f
+        var spacing = fixed ?: GRID_SPACING
+        if (fixed != null) {
+            if (spacing * scale < 6f * density) return // longe demais: o padrão viraria uma mancha
+        } else {
+            while (spacing * scale < 18f * density) spacing *= 2f
+            while (spacing * scale > 80f * density) spacing /= 2f
+        }
 
-        val startX = floor(visibleWorld.left / spacing) * spacing
-        val startY = floor(visibleWorld.top / spacing) * spacing
+        val startX = ax + floor((visibleWorld.left - ax) / spacing) * spacing
+        val startY = ay + floor((visibleWorld.top - ay) / spacing) * spacing
         val cols = ((visibleWorld.right - startX) / spacing).toInt() + 1
         val rows = ((visibleWorld.bottom - startY) / spacing).toInt() + 1
 
@@ -1578,7 +1742,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
                     }
                 }
                 gridPaint.color = if (dark) Color.parseColor("#4A5260") else Color.parseColor("#C9CED6")
-                gridPaint.strokeWidth = 2.2f * density
+                gridPaint.strokeWidth = if (fixed != null) (2.2f * density).coerceAtMost(spacing * scale * 0.12f) else 2.2f * density
                 canvas.drawPoints(gridPoints, 0, k, gridPaint)
             }
             PageStyle.LINES, PageStyle.GRID -> {
@@ -1605,5 +1769,8 @@ class InfiniteCanvasView(context: Context) : View(context) {
         private const val MAX_UNDO = 300
         private const val GRID_SPACING = 40f
         private const val FINGER_PRESSURE = 0.6f
+        private const val MAX_PAGES = 9999
+        /** Lado menor de uma folha nova (dp): perto da largura de um celular a 100%. */
+        private const val PAGE_SHORT_DP = 400f
     }
 }
