@@ -11,8 +11,8 @@ android {
         applicationId = "com.jgantonio.notasinfinitas"
         minSdk = 29
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 6
+        versionName = "0.6.0"
     }
 
     signingConfigs {
@@ -60,6 +60,8 @@ android {
 }
 
 dependencies {
+    // Front buffer para tinta com latência mínima
+    implementation("androidx.graphics:graphics-core:1.0.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("androidx.test:core:1.6.1")

@@ -114,6 +114,23 @@ class InfiniteCanvasView(context: Context) : View(context) {
     private var gesture = Gesture.NONE
     private var activePointerId = MotionEvent.INVALID_POINTER_ID
     private var builder: StrokeBuilder? = null
+
+    // ---- Baixa latência ------------------------------------------------------
+    /** Camada leve da tinta em andamento (fica por cima; só ela redesenha durante o traço). */
+    var liveInk: View? = null
+    /** Camada de front buffer (tinta aparece sem esperar o próximo quadro). */
+    var wetInk: WetInkLayer? = null
+    var lowLatency = true
+    private var wetActive = false
+    private var wetSent = 0
+    private var pendingWetClear = false
+    private val predictor: Any? = if (Build.VERSION.SDK_INT >= 34) {
+        try { android.view.MotionPredictor(context) } catch (_: Throwable) { null }
+    } else null
+    private var usePrediction = false
+    private val predXs = FloatArray(64)
+    private val predYs = FloatArray(64)
+    private var predN = 0
     private var lastFocusX = 0f
     private var lastFocusY = 0f
     private var lastSpan = 0f
@@ -124,6 +141,8 @@ class InfiniteCanvasView(context: Context) : View(context) {
     private var downX = 0f
     private var downY = 0f
     private var maxPointers = 1
+    /** Maior distância (px) que o toque andou desde que encostou: diferencia toque de traço. */
+    private var maxTravel = 0f
 
     // Laço e seleção
     private val lassoPath = Path()
@@ -874,6 +893,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
     private fun onDown(e: MotionEvent) {
         activePointerId = e.getPointerId(0)
         maxPointers = 1
+        maxTravel = 0f
         val x = e.getX(0)
         val y = e.getY(0)
         downX = x
@@ -907,10 +927,17 @@ class InfiniteCanvasView(context: Context) : View(context) {
         }
         when (gesture) {
             Gesture.DRAW -> {
-                builder = StrokeBuilder(pen(), unit).also {
+                val p = pen()
+                // Front buffer só para tinta opaca (translúcida/textura ficaria diferente ao "secar").
+                wetActive = lowLatency && wetInk?.ready == true && p.alpha >= 255 &&
+                    p.type != BrushType.PENCIL && p.type != BrushType.HIGHLIGHTER
+                wetSent = 0
+                predN = 0
+                usePrediction = !wetActive && predictionAvailable(e)
+                builder = StrokeBuilder(p, unit).also {
                     it.add(wx(x), wy(y), pressureOf(e, 0), minPointDist())
                 }
-                invalidate()
+                inkUpdated(e)
             }
             Gesture.ERASE -> {
                 begin()
@@ -934,6 +961,80 @@ class InfiniteCanvasView(context: Context) : View(context) {
     }
 
     private fun pen(): PenSettings = pen
+
+    private fun predictionAvailable(e: MotionEvent): Boolean {
+        if (Build.VERSION.SDK_INT < 34 || !lowLatency) return false
+        val p = predictor as? android.view.MotionPredictor ?: return false
+        return try { p.isPredictionAvailable(e.deviceId, e.source) } catch (_: Throwable) { false }
+    }
+
+    /** Chamado a cada ponto novo do traço: atualiza só a tinta, nunca a nota inteira. */
+    private fun inkUpdated(e: MotionEvent) {
+        val b = builder ?: return
+        if (wetActive) {
+            val wet = wetInk ?: return
+            val start = max(0, wetSent - 1)
+            val n = b.n - start
+            if (b.n <= wetSent || n <= 0) return
+            val xs = FloatArray(n) { b.xs[start + it] * scale + offsetX }
+            val ys = FloatArray(n) { b.ys[start + it] * scale + offsetY }
+            val ws = FloatArray(n) { b.ws[start + it] * scale }
+            wet.draw(InkSegment(xs, ys, ws, n, b.pen.color))
+            wetSent = b.n
+            return
+        }
+        if (usePrediction && Build.VERSION.SDK_INT >= 34) predict(e)
+        (liveInk ?: this).invalidate()
+    }
+
+    /** Previsão de movimento (Android 14+): desenha um pedacinho à frente da caneta. */
+    private fun predict(e: MotionEvent) {
+        if (Build.VERSION.SDK_INT < 34) return
+        val p = predictor as? android.view.MotionPredictor ?: return
+        predN = 0
+        try {
+            p.record(e)
+            val pr = p.predict(e.eventTimeNanos + 10_000_000L) ?: return
+            for (h in 0 until pr.historySize) {
+                if (predN >= predXs.size) break
+                predXs[predN] = wx(pr.getHistoricalX(0, h)); predYs[predN] = wy(pr.getHistoricalY(0, h)); predN++
+            }
+            if (predN < predXs.size) {
+                predXs[predN] = wx(pr.getX(0)); predYs[predN] = wy(pr.getY(0)); predN++
+            }
+            pr.recycle()
+        } catch (_: Throwable) {
+            predN = 0
+        }
+    }
+
+    private val predPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+
+    /** Desenha a tinta em andamento (chamado pela camada [LiveInkView]). */
+    fun drawLiveInk(canvas: Canvas) {
+        val b = builder ?: return
+        if (wetActive) return
+        canvas.save()
+        canvas.translate(offsetX, offsetY)
+        canvas.scale(scale, scale)
+        StrokeRenderer.drawBuilder(canvas, b)
+        if (predN > 0 && b.n > 0) {
+            predPaint.color = b.pen.color or (0xFF shl 24)
+            predPaint.alpha = b.pen.alpha
+            predPaint.strokeWidth = b.ws[b.n - 1]
+            var lx = b.xs[b.n - 1]
+            var ly = b.ys[b.n - 1]
+            for (i in 0 until predN) {
+                canvas.drawLine(lx, ly, predXs[i], predYs[i], predPaint)
+                lx = predXs[i]; ly = predYs[i]
+            }
+        }
+        canvas.restore()
+    }
 
     private fun selectionGestureAt(x: Float, y: Float): Gesture {
         val f = selectionFrame() ?: return Gesture.LASSO
@@ -967,6 +1068,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
     }
 
     private fun onMove(e: MotionEvent) {
+        if (e.pointerCount > 0) maxTravel = max(maxTravel, hypot(e.getX(0) - downX, e.getY(0) - downY))
         if (gesture == Gesture.NAVIGATE) {
             navigate(e)
             return
@@ -975,6 +1077,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
         if (idx < 0) return
         val x = e.getX(idx)
         val y = e.getY(idx)
+        maxTravel = max(maxTravel, hypot(x - downX, y - downY))
         when (gesture) {
             Gesture.DRAW -> {
                 val b = builder ?: return
@@ -983,7 +1086,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
                     b.add(wx(e.getHistoricalX(idx, h)), wy(e.getHistoricalY(idx, h)), historicalPressureOf(e, idx, h), md)
                 }
                 b.add(wx(x), wy(y), pressureOf(e, idx), md)
-                invalidate()
+                inkUpdated(e)
             }
             Gesture.ERASE -> {
                 for (h in 0 until e.historySize) eraseAt(e.getHistoricalX(idx, h), e.getHistoricalY(idx, h))
@@ -1035,7 +1138,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
 
     private fun onUp(e: MotionEvent) {
         if (gesture == Gesture.NAVIGATE && tool == Tool.SELECT && maxPointers == 1 &&
-            hypot(e.x - downX, e.y - downY) < 10f * density
+            max(maxTravel, hypot(e.x - downX, e.y - downY)) < 10f * density
         ) {
             // Toque de dedo com a seleção ativa: seleciona o item tocado.
             val hit = hitTest(wx(downX), wy(downY))
@@ -1056,11 +1159,15 @@ class InfiniteCanvasView(context: Context) : View(context) {
             gesture = Gesture.NONE
             return
         }
-        val tapped = hypot(e.x - downX, e.y - downY) < 10f * density
+        val tapped = max(maxTravel, hypot(e.x - downX, e.y - downY)) < 10f * density
         when (gesture) {
             Gesture.DRAW -> {
                 val b = builder
                 builder = null
+                predN = 0
+                if (wetActive) pendingWetClear = true
+                wetActive = false
+                liveInk?.invalidate()
                 if (b != null && b.n > 0) {
                     var stroke = b.build()
                     if (autoShapes) {
@@ -1131,7 +1238,13 @@ class InfiniteCanvasView(context: Context) : View(context) {
     /** Cancela o que a ferramenta estava fazendo (palma detectada, segundo dedo...). */
     private fun abortToolGesture() {
         when (gesture) {
-            Gesture.DRAW -> builder = null
+            Gesture.DRAW -> {
+                builder = null
+                predN = 0
+                if (wetActive) wetInk?.clear()
+                wetActive = false
+                liveInk?.invalidate()
+            }
             Gesture.ERASE -> commit()
             Gesture.LASSO -> lassoPath.reset()
             Gesture.MOVE_SEL, Gesture.SCALE_SEL, Gesture.ROTATE_SEL -> selT = Transform()
@@ -1265,6 +1378,13 @@ class InfiniteCanvasView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        if (pendingWetClear) {
+            // O traço já está na nota: limpa a tinta molhada depois que este quadro aparecer.
+            pendingWetClear = false
+            postOnAnimation {
+                postOnAnimation { if (builder == null) wetInk?.clear() else pendingWetClear = true }
+            }
+        }
         canvas.drawColor(paperColor)
         visibleWorld.set(wx(0f), wy(0f), wx(width.toFloat()), wy(height.toFloat()))
         drawPattern(canvas)
@@ -1285,7 +1405,7 @@ class InfiniteCanvasView(context: Context) : View(context) {
                 drawElement(canvas, e, scale, sync = false)
             }
         }
-        builder?.let { StrokeRenderer.drawBuilder(canvas, it) }
+        if (liveInk == null && !wetActive) builder?.let { StrokeRenderer.drawBuilder(canvas, it) }
         if (crop != null) drawCrop(canvas, crop)
         canvas.restore()
 

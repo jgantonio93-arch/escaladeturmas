@@ -79,6 +79,8 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
     private lateinit var penToolButton: ImageView
     private lateinit var colorDot: ColorDot
     private lateinit var favoritesBox: LinearLayout
+    private lateinit var colorDivider: View
+    private lateinit var emptyHint: View
     private var openTray: String? = null
 
     private val main = Handler(Looper.getMainLooper())
@@ -94,6 +96,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         }
         note = n
         prefs = PenPrefs(this)
+        requestMaxRefreshRate()
 
         canvasView = InfiniteCanvasView(this)
         canvasView.listener = this
@@ -122,6 +125,15 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
 
         stage = FrameLayout(this)
         stage.addView(canvasView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        // Camadas da tinta em andamento (baixa latência): ficam logo acima da nota.
+        val live = LiveInkView(this, canvasView)
+        stage.addView(live, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        canvasView.liveInk = live
+        if (prefs.lowLatency) {
+            val wet = WetInkLayer(this)
+            stage.addView(wet, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            canvasView.wetInk = wet
+        }
 
         zoomLabel = TextView(this).apply {
             textSize = 12f
@@ -137,6 +149,20 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         stage.addView(zoomLabel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply {
             setMargins(dpi(14f), 0, 0, dpi(14f))
         })
+
+        emptyHint = vertical().apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            isClickable = false
+            addView(ImageView(this@EditorActivity).apply {
+                setImageDrawable(PenGlyphDrawable(BrushType.FOUNTAIN, Ui.ACCENT, dpi(56f), dp(1.2f)))
+            }, LinearLayout.LayoutParams(dpi(56f), dpi(56f)))
+            addView(label("Escreva em qualquer direção", 17f, Ui.INK, bold = true).apply { setPadding(0, dpi(12f), 0, dpi(4f)) })
+            addView(label("A nota não tem fim: role para os lados e para baixo.\nUse dois dedos para mover e dar zoom.", 14f).apply {
+                gravity = Gravity.CENTER
+                setLineSpacing(0f, 1.2f)
+            })
+        }
+        stage.addView(emptyHint, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
 
         selectionBar = buildSelectionBar()
         selectionBar.visibility = View.GONE
@@ -194,6 +220,22 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         canvasView.eraserArea = prefs.eraserArea
         canvasView.eraserSize = prefs.eraserSize
         canvasView.eraserHighlighterOnly = prefs.eraserHighlighterOnly
+        canvasView.lowLatency = prefs.lowLatency
+    }
+
+    /** Pede a maior taxa de atualização da tela (ex.: 120 Hz): a tinta acompanha a caneta mais de perto. */
+    private fun requestMaxRefreshRate() {
+        try {
+            @Suppress("DEPRECATION")
+            val display = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) display else windowManager.defaultDisplay
+            val d = display ?: return
+            val cur = d.mode
+            val best = d.supportedModes
+                .filter { it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight }
+                .maxByOrNull { it.refreshRate } ?: return
+            window.attributes = window.attributes.apply { preferredDisplayModeId = best.modeId }
+        } catch (_: Throwable) {
+        }
     }
 
     // ---- Barra superior ------------------------------------------------------------
@@ -215,12 +257,16 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         titles.addView(titleView)
         titles.addView(subtitleView)
         bar.addView(titles, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        undoButton = iconButton(Icon.UNDO) { canvasView.undo() }
-        redoButton = iconButton(Icon.REDO) { canvasView.redo() }
+        undoButton = iconButton(Icon.UNDO) { finishTyping(); canvasView.undo() }
+        redoButton = iconButton(Icon.REDO) { finishTyping(); canvasView.redo() }
         bar.addView(undoButton)
         bar.addView(redoButton)
-        bar.addView(iconButton(Icon.MORE) { showMoreMenu() })
+        bar.addView(iconButton(Icon.MORE) { finishTyping(); showMoreMenu() })
         return bar
+    }
+
+    private fun finishTyping() {
+        if (::textEditor.isInitialized && textEditor.isActive) textEditor.finish()
     }
 
     // ---- Dock de ferramentas ------------------------------------------------------------
@@ -254,8 +300,9 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
         }.also { bar.addView(it) }
         toolButtons[InfiniteCanvasView.Tool.SELECT] = toolButton(icon(Icon.LASSO)) { setTool(InfiniteCanvasView.Tool.SELECT) }.also { bar.addView(it) }
         toolButtons[InfiniteCanvasView.Tool.TEXT] = toolButton(icon(Icon.TEXT)) { setTool(InfiniteCanvasView.Tool.TEXT) }.also { bar.addView(it) }
-        bar.addView(toolButton(icon(Icon.IMAGE)) { closeTray(); showInsertMenu() })
-        bar.addView(dockDivider())
+        bar.addView(toolButton(icon(Icon.IMAGE)) { finishTyping(); closeTray(); showInsertMenu() })
+        colorDivider = dockDivider()
+        bar.addView(colorDivider)
         colorDot = ColorDot(this, canvasView.pen.color, false) {
             if (canvasView.tool != InfiniteCanvasView.Tool.PEN) setTool(InfiniteCanvasView.Tool.PEN)
             toggleTray("pen")
@@ -278,6 +325,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
             (b.drawable as? IconDrawable)?.color = if (sel) Ui.ACCENT else Ui.INK
         }
         colorDot.visibility = if (tool == InfiniteCanvasView.Tool.PEN) View.VISIBLE else View.GONE
+        colorDivider.visibility = colorDot.visibility
         colorDot.color = pen.color
 
         favoritesBox.removeAllViews()
@@ -537,10 +585,16 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
 
     fun showMoreMenu() {
         closeTray()
-        val finger = switchRow(Icon.TOUCH, "Escrever com o dedo", prefs.fingerDraws) {
+        val finger = vertical()
+        finger.addView(switchRow(Icon.TOUCH, "Escrever com o dedo", prefs.fingerDraws) {
             prefs.fingerDraws = it
             applyPrefs()
-        }
+        })
+        finger.addView(switchRow(Icon.EDIT, "Tinta de latência mínima", prefs.lowLatency) {
+            prefs.lowLatency = it
+            applyPrefs()
+            toast(if (it) "Reabra a nota para ativar a tinta de latência mínima." else "Tinta de latência mínima desligada.")
+        })
         actionSheet(null, listOf(
             SheetItem(Icon.PAGE, "Plano de fundo") {
                 Panels.showBackground(this, canvasView.pageStyle, canvasView.paperColor) { s, c ->
@@ -581,6 +635,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
 
     override fun onStateChanged() {
         if (::textEditor.isInitialized) textEditor.reposition()
+        if (::emptyHint.isInitialized) emptyHint.visibility = if (canvasView.isEmpty && !(::textEditor.isInitialized && textEditor.isActive)) View.VISIBLE else View.GONE
         undoButton.alpha = if (canvasView.canUndo) 1f else 0.3f
         redoButton.alpha = if (canvasView.canRedo) 1f else 0.3f
         zoomLabel.text = "${canvasView.zoomPercent}%"
@@ -601,6 +656,7 @@ class EditorActivity : Activity(), InfiniteCanvasView.Listener {
     override fun onTextRequest(x: Float, y: Float, existing: TextElement?) {
         closeTray()
         canvasView.clearSelection()
+        emptyHint.visibility = View.GONE
         textEditor.start(existing, x, y)
     }
 

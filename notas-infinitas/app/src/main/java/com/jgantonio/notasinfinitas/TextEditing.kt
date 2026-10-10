@@ -120,8 +120,10 @@ class InlineTextEditor(
             setSelection(text.length)
         }
         edit = e
+        // Os parâmetros de layout precisam existir antes de posicionar a caixa.
+        e.layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         applyBoxStyle()
-        stage.addView(e, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        stage.addView(e)
         reposition()
 
         val b = buildBar()
@@ -167,7 +169,7 @@ class InlineTextEditor(
         val e = edit ?: return
         val z = canvas.zoom
         e.setTextSize(TypedValue.COMPLEX_UNIT_PX, size * z)
-        val lp = e.layoutParams as FrameLayout.LayoutParams
+        val lp = e.layoutParams as? FrameLayout.LayoutParams ?: return
         lp.leftMargin = (canvas.screenX(anchorX) - PAD).roundToInt()
         lp.topMargin = (canvas.screenY(anchorY) - PAD).roundToInt()
         e.layoutParams = lp

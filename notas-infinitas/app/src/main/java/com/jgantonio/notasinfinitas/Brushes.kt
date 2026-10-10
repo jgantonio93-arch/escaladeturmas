@@ -159,8 +159,23 @@ object StrokeRenderer {
         BitmapShader(bmp, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
     }
 
-    fun buildPath(xs: FloatArray, ys: FloatArray, ws: FloatArray, n: Int, uniform: Boolean): Path {
-        val path = Path()
+    // Vetores reaproveitados (o desenho acontece sempre na thread principal):
+    // nada de alocar memória a cada ponto do traço.
+    private var lx = FloatArray(256)
+    private var ly = FloatArray(256)
+    private var rx = FloatArray(256)
+    private var ry = FloatArray(256)
+    private val livePath = Path()
+    private val liveBounds = RectF()
+
+    private fun ensureScratch(n: Int) {
+        if (lx.size >= n) return
+        val size = maxOf(n, lx.size * 2)
+        lx = FloatArray(size); ly = FloatArray(size); rx = FloatArray(size); ry = FloatArray(size)
+    }
+
+    fun buildPath(xs: FloatArray, ys: FloatArray, ws: FloatArray, n: Int, uniform: Boolean, into: Path? = null): Path {
+        val path = into?.also { it.rewind() } ?: Path()
         if (n == 0) return path
         if (uniform) {
             path.moveTo(xs[0], ys[0])
@@ -172,8 +187,8 @@ object StrokeRenderer {
             path.addCircle(xs[0], ys[0], ws[0] / 2f, Path.Direction.CW)
             return path
         }
-        val lx = FloatArray(n); val ly = FloatArray(n)
-        val rx = FloatArray(n); val ry = FloatArray(n)
+        ensureScratch(n)
+        val lx = lx; val ly = ly; val rx = rx; val ry = ry
         var startAngle = 0f
         var endAngle = 0f
         for (i in 0 until n) {
@@ -195,13 +210,13 @@ object StrokeRenderer {
         }
         path.lineTo(lx[n - 1], ly[n - 1])
         val he = ws[n - 1] / 2f
-        path.arcTo(RectF(xs[n - 1] - he, ys[n - 1] - he, xs[n - 1] + he, ys[n - 1] + he), endAngle + 90f, -180f)
+        path.arcTo(xs[n - 1] - he, ys[n - 1] - he, xs[n - 1] + he, ys[n - 1] + he, endAngle + 90f, -180f, false)
         for (i in n - 2 downTo 1) {
             path.quadTo(rx[i], ry[i], (rx[i] + rx[i - 1]) / 2f, (ry[i] + ry[i - 1]) / 2f)
         }
         path.lineTo(rx[0], ry[0])
         val hs = ws[0] / 2f
-        path.arcTo(RectF(xs[0] - hs, ys[0] - hs, xs[0] + hs, ys[0] + hs), startAngle - 90f, -180f)
+        path.arcTo(xs[0] - hs, ys[0] - hs, xs[0] + hs, ys[0] + hs, startAngle - 90f, -180f, false)
         path.close()
         return path
     }
@@ -238,10 +253,13 @@ object StrokeRenderer {
     fun drawBuilder(canvas: Canvas, b: StrokeBuilder) {
         if (b.n == 0) return
         val uniform = b.pen.type == BrushType.HIGHLIGHTER
-        val path = buildPath(b.xs, b.ys, b.ws, b.n, uniform)
-        val bounds = RectF()
+        val path = buildPath(b.xs, b.ys, b.ws, b.n, uniform, livePath)
+        val bounds = liveBounds
+        @Suppress("DEPRECATION")
         path.computeBounds(bounds, true)
-        val pad = (b.ws.maxOrNull() ?: 1f) + 2f
+        var maxW = 1f
+        for (i in 0 until b.n) if (b.ws[i] > maxW) maxW = b.ws[i]
+        val pad = maxW + 2f
         bounds.inset(-pad, -pad)
         draw(canvas, b.pen.type, b.pen.color, b.pen.alpha, path, uniform, b.ws[0], bounds)
     }
