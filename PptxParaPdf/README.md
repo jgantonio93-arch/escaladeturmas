@@ -3,7 +3,7 @@
 Converte apresentações do PowerPoint (.pptx) em PDF direto no celular, **sem internet e sem bibliotecas externas**. O motor de conversão lê o XML do arquivo e redesenha cada slide com a API nativa `PdfDocument` do Android.
 
 ## Como usar o app
-1. Toque em **Escolher arquivo .pptx** (ou use "Abrir com" / "Compartilhar" a partir de qualquer gerenciador de arquivos, WhatsApp, e-mail etc.).
+1. Toque em **Escolher arquivo .pptx**, ou, em outro app (WhatsApp, e-mail, Drive, gerenciador de arquivos), toque em **Compartilhar** no .pptx e escolha **PPTX para PDF**. Também aceita "Abrir com". Se vários arquivos forem enviados juntos, o primeiro .pptx é convertido.
 2. Aguarde a conversão (barra de progresso por slide).
 3. **Salvar PDF**, **Abrir PDF** ou **Compartilhar**.
 

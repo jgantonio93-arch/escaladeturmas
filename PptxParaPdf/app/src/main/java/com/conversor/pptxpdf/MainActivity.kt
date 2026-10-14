@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity() {
             pickPptx.launch(
                 arrayOf(
                     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    "application/vnd.openxmlformats-officedocument.presentationml.slideshow",
                     "application/vnd.ms-powerpoint",
                     "application/octet-stream"
                 )
@@ -74,18 +75,43 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleIncoming(intent: Intent?) {
         if (intent == null) return
-        val uri: Uri? = when (intent.action) {
-            Intent.ACTION_VIEW -> intent.data
-            Intent.ACTION_SEND -> streamExtra(intent)
-            else -> null
+        val uris: List<Uri> = when (intent.action) {
+            Intent.ACTION_VIEW -> listOfNotNull(intent.data)
+            Intent.ACTION_SEND -> listOfNotNull(streamExtra(intent)).ifEmpty { clipUris(intent) }
+            Intent.ACTION_SEND_MULTIPLE -> streamListExtra(intent).ifEmpty { clipUris(intent) }
+            else -> emptyList()
         }
-        if (uri != null) convert(uri)
+        if (uris.isEmpty()) {
+            if (intent.action == Intent.ACTION_SEND || intent.action == Intent.ACTION_SEND_MULTIPLE) {
+                toast("Nenhum arquivo .pptx recebido")
+            }
+            return
+        }
+        // Em envios múltiplos, prefere o primeiro arquivo que pareça ser uma apresentação.
+        val uri = uris.firstOrNull { isPresentationName(displayName(it)) } ?: uris.first()
+        if (uris.size > 1) toast("Vários arquivos recebidos: convertendo ${displayName(uri)}")
+        convert(uri)
+    }
+
+    private fun isPresentationName(name: String): Boolean {
+        val n = name.lowercase()
+        return n.endsWith(".pptx") || n.endsWith(".ppsx") || n.endsWith(".pptm")
     }
 
     @Suppress("DEPRECATION")
     private fun streamExtra(intent: Intent): Uri? =
         if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
         else intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+
+    @Suppress("DEPRECATION")
+    private fun streamListExtra(intent: Intent): List<Uri> =
+        (if (Build.VERSION.SDK_INT >= 33) intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        else intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM))?.filterNotNull() ?: emptyList()
+
+    private fun clipUris(intent: Intent): List<Uri> {
+        val clip = intent.clipData ?: return emptyList()
+        return (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }
+    }
 
     private fun convert(uri: Uri) {
         val name = displayName(uri)
