@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.PptxParaPdf" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">#C43E1C</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">#2B579A</item>
+    </style>
+</resources>

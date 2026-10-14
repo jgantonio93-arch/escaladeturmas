@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">PPTX para PDF</string>
+    <string name="title">Conversor PPTX → PDF</string>
+    <string name="subtitle">Converte apresentações do PowerPoint em PDF direto no celular, sem internet.</string>
+    <string name="pick">Escolher arquivo .pptx</string>
+    <string name="save">Salvar PDF</string>
+    <string name="share">Compartilhar</string>
+    <string name="open">Abrir PDF</string>
+    <string name="idle">Nenhum arquivo selecionado.</string>
+</resources>
